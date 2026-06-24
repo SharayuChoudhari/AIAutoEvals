@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "cli-ux-designer": {
+      "source": "sjungling/claude-plugins",
+      "sourceType": "github",
+      "skillPath": "plugins/cli-developer/skills/cli-ux-designer/SKILL.md",
+      "computedHash": "b5f28d516d11983b0f12bff6f2f613806ddd8a384df434bb4ca3d5daf80d3fcf"
+    }
+  }
+}
