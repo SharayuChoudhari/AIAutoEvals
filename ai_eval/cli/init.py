@@ -7,12 +7,15 @@ Per design §1.2:
   --include, --exclude.
 - exit codes: 0 ok, 1 write failed, 2 invalid flags.
 - stdout: human summary table OR JSON object when --format json.
+
+`--force` governs regenerable scaffold (rubrics.yaml, tests.py).
+`eval/golden_set.json` is captured user data — it is always preserved unless
+the user explicitly passes `--reset-golden`.
 """
 
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 import typer
 
@@ -46,7 +49,12 @@ def init_command(
     force: bool = typer.Option(
         False,
         "--force",
-        help="Overwrite existing eval/ files.",
+        help="Overwrite existing rubrics.yaml and tests.py. Never touches captured golden-set data.",
+    ),
+    reset_golden: bool = typer.Option(
+        False,
+        "--reset-golden",
+        help="Also reset golden_set.json to an empty stub, discarding all captured traces.",
     ),
     dry_run: bool = typer.Option(
         False,
@@ -85,21 +93,89 @@ def init_command(
     log = get_logger()
     paths = resolve_paths(opts.cwd, eval_dir=None)
 
-    # Pre-flight: check write conflicts before doing work.
-    targets = [paths.rubrics_yaml, paths.golden_set_json, paths.tests_py]
-    existing = [p for p in targets if p.exists()]
-    if existing and not (force or dry_run):
-        rels = ", ".join(str(p.relative_to(opts.cwd)) for p in existing)
+    # Pre-flight: only scaffold files (rubrics.yaml, tests.py) trigger --force.
+    # golden_set.json is captured user data — handled separately below.
+    scaffold_targets = [paths.rubrics_yaml, paths.tests_py]
+    existing_scaffold = [p for p in scaffold_targets if p.exists()]
+
+    # Dry-run: classify what the real run would actually do.
+    scaffold_conflicts = existing_scaffold and not force
+    golden_has_captures = golden_writer.has_real_captures(paths.golden_set_json)
+    golden_would_reset = reset_golden  # only when explicitly requested
+
+    if dry_run:
+        would_write: list[str] = []
+        requires_force: list[str] = []
+        for p in scaffold_targets:
+            if p.exists() and not force:
+                requires_force.append(str(p.relative_to(opts.cwd)))
+            else:
+                would_write.append(str(p.relative_to(opts.cwd)))
+
+        if not paths.golden_set_json.exists():
+            would_write.append(str(paths.golden_set_json.relative_to(opts.cwd)))
+        elif golden_has_captures:
+            if reset_golden:
+                would_write.append(
+                    f"{paths.golden_set_json.relative_to(opts.cwd)} (RESET — discards captures)"
+                )
+            else:
+                would_write.append(
+                    f"{paths.golden_set_json.relative_to(opts.cwd)} (merge — new task keys added)"
+                )
+        else:
+            would_write.append(str(paths.golden_set_json.relative_to(opts.cwd)))
+
+        # Run inference even in dry-run so we can show task counts.
+        framework_filter = _split_csv(frameworks) or None
+        with status(f"scanning {opts.cwd}…", enabled=not opts.quiet):
+            scan = scan_repo(
+                opts.cwd,
+                include=include,
+                exclude=exclude,
+                framework_filter=framework_filter,
+            )
+        rubrics = build_rubrics(scan, judge_default=judge_default, judge_regression=judge_regression)
+        tasks_view = [(n, s.type, s.file_path) for n, s in rubrics.tasks.items()]
+
+        if opts.effective_format == OutputFormat.JSON:
+            json_dump(
+                {
+                    "dry_run": True,
+                    "files_scanned": scan.files_scanned,
+                    "elapsed_seconds": round(scan.elapsed_seconds, 3),
+                    "would_write": would_write,
+                    "requires_force": requires_force,
+                    "tasks": [{"name": n, "type": t, "file_path": p} for n, t, p in tasks_view],
+                }
+            )
+        else:
+            render_dry_run_summary(
+                files_scanned=scan.files_scanned,
+                tasks=tasks_view,
+                would_write=would_write,
+                no_color=opts.no_color,
+            )
+            if requires_force:
+                typer.echo(
+                    f"  note: the following already exist and require --force: "
+                    f"{', '.join(requires_force)}",
+                    err=True,
+                )
+        raise typer.Exit(code=EXIT_OK)
+
+    # Real-run pre-flight.
+    if scaffold_conflicts:
+        rels = ", ".join(str(p.relative_to(opts.cwd)) for p in existing_scaffold)
         _err(
-            "eval/ files already exist",
+            "eval/ scaffold files already exist",
             what=f"would overwrite: {rels}",
             why="init is a fresh-scaffold command",
-            fix="re-run with --force, or use `ai-eval analyze` to merge",
+            fix="re-run with --force, or use `ai-eval analyze` to merge rubrics changes",
         )
         raise typer.Exit(code=EXIT_USAGE)
 
     framework_filter = _split_csv(frameworks) or None
-
     with status(f"scanning {opts.cwd}…", enabled=not opts.quiet):
         scan = scan_repo(
             opts.cwd,
@@ -115,40 +191,7 @@ def init_command(
         judge_default=judge_default,
         judge_regression=judge_regression,
     )
-
-    tasks_view = [
-        (name, spec.type, spec.file_path) for name, spec in rubrics.tasks.items()
-    ]
-
-    if dry_run:
-        if opts.effective_format == OutputFormat.JSON:
-            json_dump(
-                {
-                    "dry_run": True,
-                    "files_scanned": scan.files_scanned,
-                    "elapsed_seconds": round(scan.elapsed_seconds, 3),
-                    "would_write": [
-                        str(paths.rubrics_yaml.relative_to(opts.cwd)),
-                        str(paths.golden_set_json.relative_to(opts.cwd)),
-                        str(paths.tests_py.relative_to(opts.cwd)),
-                    ],
-                    "tasks": [
-                        {"name": n, "type": t, "file_path": p} for n, t, p in tasks_view
-                    ],
-                }
-            )
-        else:
-            render_dry_run_summary(
-                files_scanned=scan.files_scanned,
-                tasks=tasks_view,
-                would_write=[
-                    str(paths.rubrics_yaml.relative_to(opts.cwd)),
-                    str(paths.golden_set_json.relative_to(opts.cwd)),
-                    str(paths.tests_py.relative_to(opts.cwd)),
-                ],
-                no_color=opts.no_color,
-            )
-        raise typer.Exit(code=EXIT_OK)
+    tasks_view = [(n, s.type, s.file_path) for n, s in rubrics.tasks.items()]
 
     # Write phase.
     written: list[tuple[str, str]] = []
@@ -156,11 +199,13 @@ def init_command(
         rubrics_writer.write(rubrics, paths.rubrics_yaml)
         written.append((str(paths.rubrics_yaml.relative_to(opts.cwd)), "wrote"))
 
-        if paths.golden_set_json.exists() and not force:
-            written.append((str(paths.golden_set_json.relative_to(opts.cwd)), "skipped"))
-        else:
-            golden_writer.write_stub(rubrics, paths.golden_set_json)
-            written.append((str(paths.golden_set_json.relative_to(opts.cwd)), "wrote"))
+        # golden_set.json: always preserve real captures unless --reset-golden.
+        golden_status = golden_writer.write_stub(
+            rubrics,
+            paths.golden_set_json,
+            overwrite=reset_golden,
+        )
+        written.append((str(paths.golden_set_json.relative_to(opts.cwd)), golden_status))
 
         tests_writer.write(paths.tests_py)
         written.append((str(paths.tests_py.relative_to(opts.cwd)), "wrote"))

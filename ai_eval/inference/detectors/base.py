@@ -1,10 +1,14 @@
 """Detector abstract base class + value objects.
 
 Each detector inspects a parsed Python module and emits zero or more
-`DetectedTask` records that `inference.synthesize` will turn into rubric entries.
+``DetectedTask`` records that ``inference.synthesize`` turns into rubric entries.
+
+The ``extract`` signature accepts pre-computed ``calls`` and ``defs`` so that
+``scan_repo`` can compute them once per file and share them across all detectors
+that match — avoiding redundant ``ast.walk`` calls.
 
 Third parties register detectors via the Python entry-point group
-`ai_eval.detectors`.
+``ai_eval.detectors``.
 """
 
 from __future__ import annotations
@@ -22,14 +26,14 @@ from ai_eval.inference.signatures import ImportInfo
 class DetectedTask:
     """A candidate task extracted from one module."""
 
-    name: str                       # snake_case, unique-ish; collisions resolved by synthesize
-    framework: str                  # "openai", "langchain", ...
-    type: TaskType                  # "tool_calling" | "rag" | "agent" | "chat"
-    file_path: str                  # path relative to project root
-    entry: str | None = None        # the enclosing function name, if known
+    name: str
+    framework: str
+    type: TaskType
+    file_path: str
+    entry: str | None = None
     inputs: list[str] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)
-    evidence: list[str] = field(default_factory=list)  # human-readable hints
+    evidence: list[str] = field(default_factory=list)
 
 
 class Detector(ABC):
@@ -47,6 +51,9 @@ class Detector(ABC):
         imports: list[ImportInfo],
         file_path: Path,
         project_root: Path,
+        *,
+        calls: list[ast.Call] | None = None,
+        defs: list[ast.FunctionDef | ast.AsyncFunctionDef] | None = None,
     ) -> list[DetectedTask]: ...
 
 

@@ -1,4 +1,12 @@
-"""`ai-eval doctor` — read-only environment check."""
+"""`ai-eval doctor` — read-only environment check.
+
+Per plan §1.2 and §2.12: doctor is **always safe, read-only**. It never
+creates directories, never writes files, and never modifies any state.
+
+Exit codes (plan §1.8):
+  0 — all checks pass
+  1 — any required check fails (so CI can gate on `ai-eval doctor`)
+"""
 
 from __future__ import annotations
 
@@ -19,38 +27,57 @@ from ai_eval.storage.paths import resolve_paths
 def _check_python() -> tuple[bool, str]:
     major, minor = sys.version_info[:2]
     ok = (major, minor) >= (3, 10)
-    return ok, f"python {major}.{minor} ({'>=3.10' if ok else 'too old'})"
+    return ok, f"python {major}.{minor} ({'>=3.10 ok' if ok else 'need >=3.10'})"
 
 
-def _check_module(name: str) -> tuple[bool, str]:
+def _check_module(name: str, *, optional: bool = False) -> tuple[bool, str]:
     spec = importlib.util.find_spec(name)
-    return (spec is not None, "installed" if spec else "not installed")
+    if spec is not None:
+        return True, "installed"
+    label = "not installed (optional)" if optional else "not installed"
+    # Optional deps are always ok=True so they don't affect exit code.
+    return optional, label
 
 
 def _check_writable(path: Path) -> tuple[bool, str]:
-    try:
-        path.mkdir(parents=True, exist_ok=True)
-        probe = path / ".write-test"
-        probe.write_text("ok", encoding="utf-8")
-        probe.unlink()
+    """Non-mutating writability probe.
+
+    - If ``path`` already exists: check ``os.access`` for write permission.
+    - If ``path`` does not exist: check that the nearest existing ancestor is
+      writable (which implies we can create ``path``).
+
+    Never creates directories or files.
+    """
+    target = path
+    while not target.exists():
+        parent = target.parent
+        if parent == target:
+            return False, f"no ancestor of {path} exists"
+        target = parent
+    if os.access(target, os.W_OK):
         return True, str(path)
-    except OSError as exc:
-        return False, f"{path}: {exc}"
+    return False, f"not writable: {target}"
 
 
 def _check_rubrics(cwd: Path, config_path: Path | None) -> tuple[bool, str]:
+    """Return (ok, detail).
+
+    - Absent rubrics.yaml → ok=False ("not initialised" category, required).
+    - Present but invalid → ok=False ("invalid schema" category, required).
+    - Present and valid   → ok=True.
+    """
     resolved = load_resolved(project_root=cwd, config_path=config_path)
     if resolved.rubrics_path is None:
-        return False, "no rubrics.yaml — run `ai-eval init`"
+        return False, "not found — run `ai-eval init`"
     try:
         resolved.as_rubrics()
     except Exception as exc:
-        return False, f"invalid rubrics.yaml: {exc}"
+        return False, f"invalid: {exc}"
     return True, str(resolved.rubrics_path)
 
 
 def _check_provider_creds() -> tuple[bool, str]:
-    """Soft-check provider creds: pass if at least one of common keys is set."""
+    """At least one LLM provider credential must be present for `run` to work."""
     candidates = [
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
@@ -61,42 +88,51 @@ def _check_provider_creds() -> tuple[bool, str]:
     found = [k for k in candidates if os.environ.get(k)]
     if found:
         return True, "set: " + ", ".join(found)
-    return False, "no provider creds found (set OPENAI_API_KEY or run ollama serve)"
+    return False, "no provider creds found (set OPENAI_API_KEY or run `ollama serve`)"
 
 
 def doctor_command(ctx: typer.Context) -> None:
     opts: GlobalOptions = ctx.obj
     paths = resolve_paths(opts.cwd, eval_dir=None)
 
-    checks: list[tuple[str, bool, str]] = []
-    checks.append(("python version", *_check_python()))
-    checks.append(("pydantic", *_check_module("pydantic")))
-    checks.append(("typer", *_check_module("typer")))
-    checks.append(("rich", *_check_module("rich")))
-    checks.append(("yaml", *_check_module("yaml")))
-    checks.append(("litellm (optional)", *_check_module("litellm")))
-    checks.append(("instructor (optional)", *_check_module("instructor")))
-    checks.append(("state dir writable", *_check_writable(paths.state_dir)))
-    checks.append(("rubrics.yaml", *_check_rubrics(opts.cwd, opts.config_path)))
-    checks.append(("provider credentials", *_check_provider_creds()))
+    # (name, ok, detail, required)
+    checks: list[tuple[str, bool, str, bool]] = []
 
-    # Optional checks (litellm, instructor, creds, rubrics-not-yet-init) don't fail doctor.
-    required = {"python version", "pydantic", "typer", "rich", "yaml", "state dir writable"}
-    all_required_ok = all(ok for name, ok, _ in checks if name in required)
+    def chk(name: str, ok: bool, detail: str, *, required: bool = True) -> None:
+        checks.append((name, ok, detail, required))
+
+    chk("python version", *_check_python())
+    chk("pydantic", *_check_module("pydantic"))
+    chk("typer", *_check_module("typer"))
+    chk("rich", *_check_module("rich"))
+    chk("yaml", *_check_module("yaml"))
+    chk("litellm", *_check_module("litellm", optional=True), required=False)
+    chk("instructor", *_check_module("instructor", optional=True), required=False)
+    chk("state dir writable", *_check_writable(paths.state_dir))
+    chk("rubrics.yaml", *_check_rubrics(opts.cwd, opts.config_path))
+    chk("provider credentials", *_check_provider_creds())
+
+    # Plan §1.2 / §1.8: exit 1 if ANY check fails (so CI can gate).
+    # We use `required` only to label optional vs required in output; all checks
+    # that return ok=False contribute to exit 1.
+    any_failed = any(not ok for _, ok, _, _ in checks)
+
+    render_checks = [(name, ok, detail) for name, ok, detail, _ in checks]
 
     if opts.effective_format == OutputFormat.JSON:
         json_dump(
             {
-                "ok": all_required_ok,
+                "ok": not any_failed,
                 "checks": [
-                    {"name": n, "ok": ok, "detail": detail} for n, ok, detail in checks
+                    {"name": n, "ok": ok, "detail": detail, "required": req}
+                    for n, ok, detail, req in checks
                 ],
             }
         )
     else:
-        render_doctor(checks, no_color=opts.no_color)
+        render_doctor(render_checks, no_color=opts.no_color)
 
-    raise typer.Exit(code=EXIT_OK if all_required_ok else EXIT_GENERAL)
+    raise typer.Exit(code=EXIT_GENERAL if any_failed else EXIT_OK)
 
 
 __all__ = ["doctor_command"]

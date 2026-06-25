@@ -28,23 +28,22 @@ class ChromaDBDetector(Detector):
         imports: list[ImportInfo],
         file_path: Path,
         project_root: Path,
+        *,
+        calls: list[ast.Call] | None = None,
+        defs: list[ast.FunctionDef | ast.AsyncFunctionDef] | None = None,
     ) -> list[DetectedTask]:
-        defs = find_callable_defs(tree)
+        _calls = calls if calls is not None else list(iter_calls(tree))
+        _defs = defs if defs is not None else find_callable_defs(tree)
         rel = file_path.relative_to(project_root).as_posix()
         out: list[DetectedTask] = []
         seen: set[str] = set()
-        for call in iter_calls(tree):
+        for call in _calls:
             chain = attr_chain(call.func)
             if not chain:
                 continue
             if chain[-1] not in {"query", "get"}:
                 continue
-            # Bias toward names that include "collection" or "client" to reduce noise.
-            receiver_hint = ".".join(chain[:-1]).lower()
-            if not any(h in receiver_hint for h in ("collection", "chroma", "vectorstore")):
-                # Still accept if chromadb is imported and the call shape is right.
-                pass
-            entry = enclosing_def_name(call, defs)
+            entry = enclosing_def_name(call, _defs)
             name = entry or f"{file_path.stem}_retriever"
             if name in seen:
                 continue

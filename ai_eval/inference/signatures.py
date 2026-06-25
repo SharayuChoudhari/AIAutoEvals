@@ -115,12 +115,43 @@ def enclosing_def_name(
     return None
 
 
+# ---------------------------------------------------------------------------
+# OpenAI-specific predicates (shared between openai_chat and openai_tools
+# detectors so they stay in sync as the partition key between them).
+# ---------------------------------------------------------------------------
+
+#: Kwarg names that indicate a chat.completions.create call is doing tool/
+#: function calling.  Both detectors MUST use this same constant so they
+#: remain mutually exclusive: chat skips calls where this is True; tools
+#: skips calls where this is False.
+OPENAI_TOOL_KWARGS: frozenset[str] = frozenset({"tools", "functions", "tool_choice"})
+
+
+def is_openai_completions_create(call: ast.Call) -> bool:
+    """True for ``<any>.chat.completions.create(...)`` or legacy
+    ``<any>.ChatCompletion.create(...)`` regardless of receiver expression."""
+    chain = attr_chain(call.func)
+    if len(chain) >= 3 and chain[-3:] == ["chat", "completions", "create"]:
+        return True
+    if len(chain) >= 2 and chain[-2:] == ["ChatCompletion", "create"]:
+        return True
+    return False
+
+
+def has_openai_tool_kwarg(call: ast.Call) -> bool:
+    """True when the call uses at least one tool-calling kwarg."""
+    return any(kw.arg in OPENAI_TOOL_KWARGS for kw in call.keywords)
+
+
 __all__ = [
     "ImportInfo",
+    "OPENAI_TOOL_KWARGS",
     "attr_chain",
     "collect_imports",
     "enclosing_def_name",
     "find_callable_defs",
     "has_import_prefix",
+    "has_openai_tool_kwarg",
+    "is_openai_completions_create",
     "iter_calls",
 ]

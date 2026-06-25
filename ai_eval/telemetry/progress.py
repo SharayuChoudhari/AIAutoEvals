@@ -8,12 +8,13 @@ from typing import Iterator
 
 from rich.console import Console
 
-# Shared stderr console used for status output. `force_terminal=None` lets rich
-# detect TTY; `no_color` is applied later via theme.
+# Shared stderr console used for status output. Access via `stderr_console()`
+# so callers always get the same instance.
 _stderr_console = Console(stderr=True, soft_wrap=True)
 
 
 def stderr_console() -> Console:
+    """Return the shared stderr Rich Console."""
     return _stderr_console
 
 
@@ -26,7 +27,7 @@ def status(message: str, *, enabled: bool = True) -> Iterator[None]:
     if not enabled or not sys.stderr.isatty():
         yield
         return
-    with _stderr_console.status(f"[dim]{message}[/dim]", spinner="dots"):
+    with stderr_console().status(f"[dim]{message}[/dim]", spinner="dots"):
         yield
 
 

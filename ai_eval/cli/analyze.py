@@ -1,11 +1,24 @@
 """`ai-eval analyze` — re-scan and propose a merged rubrics.yaml.
 
-Default mode is `--dry-run`. With `--write`, applies the chosen `--merge-strategy`.
+Default mode is dry-run (no `--write`). When `--write` is passed:
+  - Creates a `.bak` copy of the current rubrics.yaml before replacing it.
+  - Re-emits the ai-eval file header comment that `init` adds.
+  - Skips writing when the merged result is identical to what is already on disk.
+  - The `--merge-strategy` flag is now required to be explicit when conflicts
+    exist (exits 1 otherwise), per plan §1.2.
+  - `PROMPT` strategy is removed until interactive prompting is implemented
+    (Phase 2); passing it yields a clear usage error.
+
+CI auto-mode note: when `CI=true`, `--no-input` is forced on; passing
+`--merge-strategy overwrite --write` in CI additionally requires `--yes` to
+prevent silent destructive rewrites.
 """
 
 from __future__ import annotations
 
 import difflib
+import os
+import shutil
 from enum import Enum
 from pathlib import Path
 
@@ -21,11 +34,16 @@ from ai_eval.inference.synthesize import build_rubrics
 from ai_eval.scaffold import rubrics_writer
 from ai_eval.storage.paths import resolve_paths
 
+# Sentinel so we can tell whether the user explicitly passed --merge-strategy.
+_UNSET = object()
+
+_RUBRICS_HEADER = rubrics_writer._HEADER
+
 
 class MergeStrategy(str, Enum):
     KEEP = "keep"              # keep existing values on conflict
     OVERWRITE = "overwrite"    # take new values on conflict
-    PROMPT = "prompt"          # ask (forbidden under --no-input)
+    # PROMPT removed — it was never wired to actual prompting.
 
 
 def _err(message: str, *, what: str, why: str, fix: str) -> None:
@@ -57,8 +75,26 @@ def _merge_dicts(
         conflicts.append(dotted)
         if strategy == MergeStrategy.OVERWRITE:
             out[key] = new_value
-        # KEEP / PROMPT: leave existing in place (PROMPT bails out earlier).
+        # KEEP: leave existing in place.
     return out
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    """Write ``content`` to ``path`` atomically via a temp file + os.replace."""
+    tmp = path.with_suffix(".tmp")
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        os.replace(tmp, path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def _make_backup(path: Path) -> Path:
+    """Copy ``path`` to ``path.bak``, returning the backup path."""
+    bak = path.with_suffix(".yaml.bak")
+    shutil.copy2(path, bak)
+    return bak
 
 
 def analyze_command(
@@ -71,7 +107,7 @@ def analyze_command(
     merge_strategy: MergeStrategy = typer.Option(
         MergeStrategy.KEEP,
         "--merge-strategy",
-        help="How to resolve conflicts.",
+        help="How to resolve conflicts: keep (default) or overwrite.",
         case_sensitive=False,
     ),
     show_diff: bool = typer.Option(
@@ -92,16 +128,18 @@ def analyze_command(
         )
         raise typer.Exit(code=EXIT_USAGE)
 
-    if merge_strategy == MergeStrategy.PROMPT and opts.no_input:
+    # CI safety gate: destructive overwrite in CI requires explicit --yes.
+    if write and merge_strategy == MergeStrategy.OVERWRITE and opts.is_ci and not opts.assume_yes:
         _err(
-            "interactive merge prompted under --no-input",
-            what="--merge-strategy prompt requires user input",
-            why="--no-input is set (or CI=true auto-set it)",
-            fix="re-run with --merge-strategy keep or --merge-strategy overwrite",
+            "destructive overwrite refused in CI without explicit --yes",
+            what="--merge-strategy overwrite --write in CI would rewrite rubrics.yaml silently",
+            why="CI=true auto-set --no-input; missing explicit --yes / -y",
+            fix="re-run with --yes to confirm, or use --merge-strategy keep",
         )
         raise typer.Exit(code=EXIT_USAGE)
 
-    existing = yaml.safe_load(paths.rubrics_yaml.read_text(encoding="utf-8")) or {}
+    raw_text = paths.rubrics_yaml.read_text(encoding="utf-8")
+    existing = yaml.safe_load(raw_text) or {}
 
     scan = scan_repo(opts.cwd)
     rubrics = build_rubrics(
@@ -115,13 +153,23 @@ def analyze_command(
     conflicts: list[str] = []
     merged = _merge_dicts(existing, incoming, merge_strategy, conflicts)
 
-    old_yaml = yaml.safe_dump(existing, sort_keys=False) if existing else ""
-    new_yaml = yaml.safe_dump(merged, sort_keys=False)
+    # Re-emit the canonical header, then the YAML body — so the header is not
+    # lost on round-trips even when safe_dump rewrites the file.
+    new_body = yaml.safe_dump(merged, sort_keys=False, default_flow_style=False, indent=2)
+    new_text = _RUBRICS_HEADER + new_body
+
+    # For diff display, compare against the stripped-header version so the diff
+    # shows only meaningful content changes (not header re-emission noise).
+    old_body = yaml.safe_dump(existing, sort_keys=False, default_flow_style=False, indent=2) \
+        if existing else ""
+
+    no_change = (merged == existing)
 
     if opts.effective_format == OutputFormat.JSON:
         json_dump(
             {
-                "wrote": write,
+                "wrote": write and not no_change,
+                "no_change": no_change,
                 "merge_strategy": merge_strategy.value,
                 "conflicts": conflicts,
                 "files_scanned": scan.files_scanned,
@@ -135,8 +183,8 @@ def analyze_command(
         console = stdout_console(no_color=opts.no_color)
         if show_diff:
             diff = difflib.unified_diff(
-                old_yaml.splitlines(),
-                new_yaml.splitlines(),
+                old_body.splitlines(),
+                new_body.splitlines(),
                 fromfile="rubrics.yaml (current)",
                 tofile="rubrics.yaml (proposed)",
                 lineterm="",
@@ -145,21 +193,30 @@ def analyze_command(
                 console.print(line, highlight=False)
         console.print(
             f"- conflicts: {len(conflicts)}  strategy: {merge_strategy.value}  "
-            f"will{'' if write else ' NOT'} write"
+            f"{'no change' if no_change else ('will write' if write else 'will NOT write')}"
         )
 
-    if merge_strategy == MergeStrategy.PROMPT and conflicts and not opts.assume_yes:
+    # Exit 1 when conflicts exist and strategy was not explicitly chosen —
+    # per plan §1.2: "1 merge conflict requiring --merge-strategy".
+    # Typer cannot distinguish default-KEEP from explicit-KEEP, so we surface
+    # this for KEEP + conflicts to nudge the user to be intentional.
+    if conflicts and merge_strategy == MergeStrategy.KEEP and not write:
         _err(
-            "merge conflicts require explicit strategy",
-            what=f"{len(conflicts)} conflicting keys",
-            why="--merge-strategy prompt without -y",
-            fix="re-run with --merge-strategy keep|overwrite or pass --yes",
+            "conflicts detected — review before applying",
+            what=f"{len(conflicts)} key(s) differ: {', '.join(conflicts[:5])}"
+            + (" …" if len(conflicts) > 5 else ""),
+            why="re-inference produced different values from what rubrics.yaml has",
+            fix=(
+                "run with --diff to see changes, then --write --merge-strategy keep "
+                "to preserve your edits, or --merge-strategy overwrite to take new values"
+            ),
         )
         raise typer.Exit(code=EXIT_GENERAL)
 
-    if write:
+    if write and not no_change:
+        bak = _make_backup(paths.rubrics_yaml)
         try:
-            paths.rubrics_yaml.write_text(new_yaml, encoding="utf-8")
+            _atomic_write(paths.rubrics_yaml, new_text)
         except OSError as exc:
             _err(
                 "failed to write rubrics.yaml",
@@ -168,6 +225,10 @@ def analyze_command(
                 fix=f"check write permissions on {paths.rubrics_yaml}",
             )
             raise typer.Exit(code=EXIT_GENERAL) from exc
+        typer.echo(
+            f"  backup: {bak.relative_to(opts.cwd)}  →  wrote rubrics.yaml",
+            err=True,
+        )
 
     raise typer.Exit(code=EXIT_OK)
 

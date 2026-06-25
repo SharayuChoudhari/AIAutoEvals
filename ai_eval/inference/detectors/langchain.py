@@ -16,7 +16,6 @@ from ai_eval.inference.signatures import (
 )
 
 _AGENTIC_HINTS = {"AgentExecutor", "create_react_agent", "create_tool_calling_agent"}
-_RETRIEVER_HINTS = {"as_retriever", "invoke"}  # retriever.invoke + vectorstore.as_retriever
 
 
 def _is_langchain_imports(imports: list[ImportInfo]) -> bool:
@@ -40,8 +39,12 @@ class LangChainDetector(Detector):
         imports: list[ImportInfo],
         file_path: Path,
         project_root: Path,
+        *,
+        calls: list[ast.Call] | None = None,
+        defs: list[ast.FunctionDef | ast.AsyncFunctionDef] | None = None,
     ) -> list[DetectedTask]:
-        defs = find_callable_defs(tree)
+        _calls = calls if calls is not None else list(iter_calls(tree))
+        _defs = defs if defs is not None else find_callable_defs(tree)
         rel = file_path.relative_to(project_root).as_posix()
         agentic = any(
             info.name in _AGENTIC_HINTS or info.module.endswith("agents")
@@ -53,15 +56,14 @@ class LangChainDetector(Detector):
 
         out: list[DetectedTask] = []
         seen: set[str] = set()
-        for call in iter_calls(tree):
+        for call in _calls:
             chain = attr_chain(call.func)
             if not chain:
                 continue
             last = chain[-1]
-            # Treat `.invoke(...)` or `.ainvoke(...)` on a langchain object as a task.
             if last not in {"invoke", "ainvoke", "run", "arun", "stream", "astream"}:
                 continue
-            entry = enclosing_def_name(call, defs)
+            entry = enclosing_def_name(call, _defs)
             name = entry or f"{file_path.stem}_chain"
             if name in seen:
                 continue

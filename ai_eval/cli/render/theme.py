@@ -17,10 +17,8 @@ class State:
 
 PASS = State(icon="\u2713", color="green", label="pass")           # ✓
 FAIL = State(icon="\u2717", color="red", label="fail")             # ✗
-WARN = State(icon="!", color="yellow", label="warn")
 INFO = State(icon="-", color="bright_black", label="info")
-IDENT = State(icon=" ", color="cyan", label="id")
-LINK = State(icon=" ", color="blue underline", label="link")
+# WARN, IDENT, LINK intentionally omitted until a rendering phase uses them.
 
 
 def styled(text: str, *, color: str, no_color: bool) -> str:
@@ -38,12 +36,9 @@ def state_glyph(state: State, *, no_color: bool) -> str:
 
 __all__ = [
     "FAIL",
-    "IDENT",
     "INFO",
-    "LINK",
     "PASS",
     "State",
-    "WARN",
     "state_glyph",
     "styled",
 ]

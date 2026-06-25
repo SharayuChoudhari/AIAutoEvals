@@ -8,25 +8,13 @@ from pathlib import Path
 from ai_eval.inference.detectors.base import DetectedTask, Detector
 from ai_eval.inference.signatures import (
     ImportInfo,
-    attr_chain,
     enclosing_def_name,
     find_callable_defs,
     has_import_prefix,
+    has_openai_tool_kwarg,
+    is_openai_completions_create,
     iter_calls,
 )
-
-
-def _is_chat_completions_create(call: ast.Call) -> bool:
-    chain = attr_chain(call.func)
-    if len(chain) >= 3 and chain[-3:] == ["chat", "completions", "create"]:
-        return True
-    if len(chain) >= 2 and chain[-2:] == ["ChatCompletion", "create"]:
-        return True
-    return False
-
-
-def _has_tools(call: ast.Call) -> bool:
-    return any(kw.arg in {"tools", "functions", "tool_choice"} for kw in call.keywords)
 
 
 class OpenAIToolsDetector(Detector):
@@ -41,17 +29,22 @@ class OpenAIToolsDetector(Detector):
         imports: list[ImportInfo],
         file_path: Path,
         project_root: Path,
+        *,
+        calls: list[ast.Call] | None = None,
+        defs: list[ast.FunctionDef | ast.AsyncFunctionDef] | None = None,
     ) -> list[DetectedTask]:
-        defs = find_callable_defs(tree)
+        _calls = calls if calls is not None else list(iter_calls(tree))
+        _defs = defs if defs is not None else find_callable_defs(tree)
         rel = file_path.relative_to(project_root).as_posix()
         out: list[DetectedTask] = []
         seen: set[str] = set()
-        for call in iter_calls(tree):
-            if not _is_chat_completions_create(call):
+        for call in _calls:
+            if not is_openai_completions_create(call):
                 continue
-            if not _has_tools(call):
+            if not has_openai_tool_kwarg(call):
+                # OpenAIChatDetector owns non-tool calls.
                 continue
-            entry = enclosing_def_name(call, defs)
+            entry = enclosing_def_name(call, _defs)
             name = entry or f"{file_path.stem}_tools"
             if name in seen:
                 continue
