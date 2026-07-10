@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from ai_eval.scaffold.golden_writer import has_real_captures, write_stub
 
 

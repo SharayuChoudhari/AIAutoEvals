@@ -22,14 +22,25 @@ import typer
 from ai_eval.cli.app import EXIT_GENERAL, EXIT_OK, EXIT_USAGE, GlobalOptions, OutputFormat
 from ai_eval.cli.render.json_out import dump as json_dump
 from ai_eval.cli.render.tables import render_dry_run_summary, render_init_summary
+from ai_eval.cli.rubric_engine import (
+    VALID_ENGINES,
+    build_with_engine,
+    fail_engine_error,
+    make_caps,
+)
 from ai_eval.config.defaults import DEFAULT_JUDGE, DEFAULT_REGRESSION_JUDGE
 from ai_eval.inference.ast_scan import scan_repo
-from ai_eval.inference.synthesize import build_rubrics
+from ai_eval.inference.hints import merge_hints
 from ai_eval.scaffold import golden_writer, rubrics_writer, tests_writer
 from ai_eval.scaffold.gitignore_patch import ensure_gitignored
+from ai_eval.scaffold.hints_writer import write_hints_template
 from ai_eval.storage.paths import resolve_paths
 from ai_eval.telemetry.logger import get_logger
 from ai_eval.telemetry.progress import status
+
+#: Default rubric engine. `hybrid` runs the rule detectors for grounded
+#: evidence, then the SLM for classification. Use `rules` to skip the SLM.
+DEFAULT_RUBRIC_ENGINE = "hybrid"
 
 
 def _split_csv(value: str | None) -> list[str]:
@@ -49,7 +60,10 @@ def init_command(
     force: bool = typer.Option(
         False,
         "--force",
-        help="Overwrite existing rubrics.yaml and tests.py. Never touches captured golden-set data.",
+        help=(
+            "Overwrite existing rubrics.yaml and tests.py. "
+            "Never touches captured golden-set data."
+        ),
     ),
     reset_golden: bool = typer.Option(
         False,
@@ -88,10 +102,51 @@ def init_command(
         "--exclude",
         help="Glob to exclude (repeatable).",
     ),
+    rubric_engine: str = typer.Option(
+        DEFAULT_RUBRIC_ENGINE,
+        "--rubric-engine",
+        help=(
+            "Rubric generation engine: rules (rule-only), slm (SLM-only), "
+            "hybrid (rules then SLM)."
+        ),
+    ),
+    rubric_model: str = typer.Option(
+        DEFAULT_JUDGE,
+        "--rubric-model",
+        help="SLM model id (litellm format) for slm/hybrid engines.",
+        show_default=True,
+    ),
+    rubric_max_snippet_chars: int = typer.Option(
+        1500,
+        "--rubric-max-snippet-chars",
+        help="Max chars of the enclosing-function snippet sent to the SLM per task.",
+        show_default=True,
+    ),
+    rubric_max_tasks: int = typer.Option(
+        25,
+        "--rubric-max-tasks",
+        help="Max number of detected tasks sent to the SLM (caps cost).",
+        show_default=True,
+    ),
+    rubric_budget_tokens: int = typer.Option(
+        0,
+        "--rubric-budget-tokens",
+        help="Hard total prompt token budget (0 = no cap).",
+        show_default=True,
+    ),
 ) -> None:
     opts: GlobalOptions = ctx.obj
     log = get_logger()
     paths = resolve_paths(opts.cwd, eval_dir=None)
+
+    if rubric_engine not in VALID_ENGINES:
+        _err(
+            "invalid --rubric-engine",
+            what=f"got {rubric_engine!r}",
+            why=f"--rubric-engine must be one of: {', '.join(VALID_ENGINES)}",
+            fix=f"re-run with --rubric-engine {'|'.join(VALID_ENGINES)}",
+        )
+        raise typer.Exit(code=EXIT_USAGE)
 
     # Pre-flight: only scaffold files (rubrics.yaml, tests.py) trigger --force.
     # golden_set.json is captured user data — handled separately below.
@@ -101,7 +156,6 @@ def init_command(
     # Dry-run: classify what the real run would actually do.
     scaffold_conflicts = existing_scaffold and not force
     golden_has_captures = golden_writer.has_real_captures(paths.golden_set_json)
-    golden_would_reset = reset_golden  # only when explicitly requested
 
     if dry_run:
         would_write: list[str] = []
@@ -135,17 +189,49 @@ def init_command(
                 exclude=exclude,
                 framework_filter=framework_filter,
             )
-        rubrics = build_rubrics(scan, judge_default=judge_default, judge_regression=judge_regression)
+        # Merge opt-in hint tasks before the rubric engine runs so both rules
+        # and SLM/hybrid see them. A malformed hints file is an error even in
+        # dry-run (the user would hit it on the real run too).
+        try:
+            scan = merge_hints(scan, paths.hints_yaml)
+        except Exception as exc:
+            _err(
+                "failed to load hints file",
+                what=str(exc).splitlines()[0] if str(exc) else "hints file error",
+                why="eval/ai-eval.hints.yaml is malformed or violates the schema",
+                fix="fix the hints file, or remove it to skip hints",
+            )
+            raise typer.Exit(code=EXIT_GENERAL) from exc
+        try:
+            result = build_with_engine(
+                engine=rubric_engine,
+                scan=scan,
+                project_root=opts.cwd,
+                model=rubric_model,
+                judge_default=judge_default,
+                judge_regression=judge_regression,
+                caps=make_caps(
+                    rubric_max_snippet_chars, rubric_max_tasks, rubric_budget_tokens
+                ),
+            )
+        except typer.Exit:
+            raise
+        except Exception as exc:
+            fail_engine_error(exc)
+            return  # unreachable; fail_engine_error exits
+        rubrics = result.rubrics
         tasks_view = [(n, s.type, s.file_path) for n, s in rubrics.tasks.items()]
 
         if opts.effective_format == OutputFormat.JSON:
             json_dump(
                 {
+                    "schema_version": rubrics.schema_version,
                     "dry_run": True,
                     "files_scanned": scan.files_scanned,
                     "elapsed_seconds": round(scan.elapsed_seconds, 3),
                     "would_write": would_write,
                     "requires_force": requires_force,
+                    "rubric_engine": rubrics.rubric_engine,
                     "tasks": [{"name": n, "type": t, "file_path": p} for n, t, p in tasks_view],
                 }
             )
@@ -183,14 +269,37 @@ def init_command(
             exclude=exclude,
             framework_filter=framework_filter,
         )
+    try:
+        scan = merge_hints(scan, paths.hints_yaml)
+    except Exception as exc:
+        _err(
+            "failed to load hints file",
+            what=str(exc).splitlines()[0] if str(exc) else "hints file error",
+            why="eval/ai-eval.hints.yaml is malformed or violates the schema",
+            fix="fix the hints file, or remove it to skip hints",
+        )
+        raise typer.Exit(code=EXIT_GENERAL) from exc
 
     log.debug("scan complete: %d files, %d tasks", scan.files_scanned, len(scan.tasks))
 
-    rubrics = build_rubrics(
-        scan,
-        judge_default=judge_default,
-        judge_regression=judge_regression,
-    )
+    try:
+        result = build_with_engine(
+            engine=rubric_engine,
+            scan=scan,
+            project_root=opts.cwd,
+            model=rubric_model,
+            judge_default=judge_default,
+            judge_regression=judge_regression,
+            caps=make_caps(
+                rubric_max_snippet_chars, rubric_max_tasks, rubric_budget_tokens
+            ),
+        )
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        fail_engine_error(exc)
+        return  # unreachable; fail_engine_error exits
+    rubrics = result.rubrics
     tasks_view = [(n, s.type, s.file_path) for n, s in rubrics.tasks.items()]
 
     # Write phase.
@@ -210,6 +319,15 @@ def init_command(
         tests_writer.write(paths.tests_py)
         written.append((str(paths.tests_py.relative_to(opts.cwd)), "wrote"))
 
+        # Emit a commented-out hints template on first init only — never
+        # overwrite a user-edited hints file (re-runs preserve edits, mirroring
+        # the golden-set preservation rule).
+        hints_status = write_hints_template(paths.hints_yaml)
+        if hints_status is not None:
+            written.append(
+                (str(paths.hints_yaml.relative_to(opts.cwd)), hints_status)
+            )
+
         paths.ensure_state()
         written.append((str(paths.state_dir.relative_to(opts.cwd)), "ensured"))
 
@@ -225,17 +343,18 @@ def init_command(
         raise typer.Exit(code=EXIT_GENERAL) from exc
 
     if opts.effective_format == OutputFormat.JSON:
-        json_dump(
-            {
-                "files_scanned": scan.files_scanned,
-                "elapsed_seconds": round(scan.elapsed_seconds, 3),
-                "written": [{"path": p, "status": s} for p, s in written],
-                "tasks": [
-                    {"name": n, "type": t, "file_path": p} for n, t, p in tasks_view
-                ],
-                "next": "ai-eval bootstrap -- pytest",
-            }
-        )
+            json_dump(
+                {
+                    "files_scanned": scan.files_scanned,
+                    "elapsed_seconds": round(scan.elapsed_seconds, 3),
+                    "written": [{"path": p, "status": s} for p, s in written],
+                    "rubric_engine": rubrics.rubric_engine,
+                    "tasks": [
+                        {"name": n, "type": t, "file_path": p} for n, t, p in tasks_view
+                    ],
+                    "next": "ai-eval bootstrap -- pytest",
+                }
+            )
     else:
         render_init_summary(
             files_scanned=scan.files_scanned,

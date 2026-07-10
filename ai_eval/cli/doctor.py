@@ -91,6 +91,33 @@ def _check_provider_creds() -> tuple[bool, str]:
     return False, "no provider creds found (set OPENAI_API_KEY or run `ollama serve`)"
 
 
+def _check_judge_gateway(
+    cwd: Path, config_path: Path | None
+) -> tuple[bool, str]:
+    """Best-effort ping of ``judge.default``. Optional/required=False.
+
+    A failure here is informational — it warns without forcing exit 1 unless
+    every other provider check also failed. The ping is timeout-bounded and
+    never raises.
+    """
+    resolved = load_resolved(project_root=cwd, config_path=config_path)
+    judge = (resolved.data.get("judge") or {}) if isinstance(resolved.data, dict) else {}
+    model = judge.get("default")
+    if not model:
+        return False, "judge.default not configured (run `ai-eval init`)"
+    try:
+        import asyncio
+
+        from ai_eval.judge.gateway import ping
+
+        # Short timeout: doctor must stay fast and read-only. A longer reachability
+        # probe belongs to `ai-eval judge --ping`.
+        ok, detail = asyncio.run(ping(model, timeout=5.0))
+        return ok, f"{model}: {detail}"
+    except Exception as exc:
+        return False, f"judge ping unavailable: {type(exc).__name__}: {exc}"
+
+
 def doctor_command(ctx: typer.Context) -> None:
     opts: GlobalOptions = ctx.obj
     paths = resolve_paths(opts.cwd, eval_dir=None)
@@ -111,11 +138,17 @@ def doctor_command(ctx: typer.Context) -> None:
     chk("state dir writable", *_check_writable(paths.state_dir))
     chk("rubrics.yaml", *_check_rubrics(opts.cwd, opts.config_path))
     chk("provider credentials", *_check_provider_creds())
+    chk(
+        "judge gateway reachable",
+        *_check_judge_gateway(opts.cwd, opts.config_path),
+        required=False,
+    )
 
-    # Plan §1.2 / §1.8: exit 1 if ANY check fails (so CI can gate).
-    # We use `required` only to label optional vs required in output; all checks
-    # that return ok=False contribute to exit 1.
-    any_failed = any(not ok for _, ok, _, _ in checks)
+    # Plan §1.2 / §1.8: exit 1 if any REQUIRED check fails (so CI can gate).
+    # Optional checks (litellm, instructor, judge gateway) warn but never force
+    # exit 1 — their failure doesn't block `init`/`analyze` or `--rubric-engine
+    # rules` runs.
+    any_failed = any(not ok for _, ok, _, req in checks if req)
 
     render_checks = [(name, ok, detail) for name, ok, detail, _ in checks]
 

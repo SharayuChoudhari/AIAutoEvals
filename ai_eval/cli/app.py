@@ -190,19 +190,37 @@ def _root(
 
 # Per-command registration. Imports happen here to keep startup fast and avoid
 # circular imports between cli modules.
-from ai_eval.cli import (  # noqa: E402
+from ai_eval.cli import (
     analyze as _analyze,
+)
+from ai_eval.cli import bootstrap as _bootstrap
+from ai_eval.cli import (
     config_cmd as _config_cmd,
+)
+from ai_eval.cli import (
     diff as _diff,
+)
+from ai_eval.cli import (
     doctor as _doctor,
+)
+from ai_eval.cli import (
     history as _history,
+)
+from ai_eval.cli import (
     init as _init,
+)
+from ai_eval.cli import (
     judge as _judge,
+)
+from ai_eval.cli import (
     report as _report,
+)
+from ai_eval.cli import (
     run as _run,
+)
+from ai_eval.cli import (
     stubs as _stubs,
 )
-from ai_eval.cli import bootstrap as _bootstrap  # noqa: E402
 
 app.command("init", help="Scan the repo and scaffold eval/ (rubrics + tests).")(
     _init.init_command

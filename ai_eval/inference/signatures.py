@@ -138,14 +138,28 @@ def is_openai_completions_create(call: ast.Call) -> bool:
     return False
 
 
+def is_openai_responses_create(call: ast.Call) -> bool:
+    """True for ``<any>.responses.create(...)`` regardless of receiver expression.
+
+    The receiver is typically ``client``, ``self.client``, or ``OpenAI()``
+    (yielding the ``<call>`` sentinel), so we match only on the trailing two
+    attribute names. This is deliberately distinct from
+    :func:`is_openai_completions_create`, which targets the
+    ``chat.completions.create`` / legacy ``ChatCompletion.create`` suffixes, so
+    the two predicates never overlap.
+    """
+    chain = attr_chain(call.func)
+    return len(chain) >= 2 and chain[-2:] == ["responses", "create"]
+
+
 def has_openai_tool_kwarg(call: ast.Call) -> bool:
     """True when the call uses at least one tool-calling kwarg."""
     return any(kw.arg in OPENAI_TOOL_KWARGS for kw in call.keywords)
 
 
 __all__ = [
-    "ImportInfo",
     "OPENAI_TOOL_KWARGS",
+    "ImportInfo",
     "attr_chain",
     "collect_imports",
     "enclosing_def_name",
@@ -153,5 +167,6 @@ __all__ = [
     "has_import_prefix",
     "has_openai_tool_kwarg",
     "is_openai_completions_create",
+    "is_openai_responses_create",
     "iter_calls",
 ]

@@ -19,15 +19,18 @@ import fnmatch
 import os
 import subprocess
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 from ai_eval.inference.detectors.base import DetectedTask, Detector
 from ai_eval.inference.detectors.chromadb import ChromaDBDetector
 from ai_eval.inference.detectors.langchain import LangChainDetector
+from ai_eval.inference.detectors.langgraph import LangGraphDetector
 from ai_eval.inference.detectors.openai_chat import OpenAIChatDetector
+from ai_eval.inference.detectors.openai_responses import OpenAIResponsesDetector
 from ai_eval.inference.detectors.openai_tools import OpenAIToolsDetector
+from ai_eval.inference.detectors.pgvector import PGVectorDetector
 from ai_eval.inference.signatures import (
     collect_imports,
     find_callable_defs,
@@ -65,9 +68,19 @@ class ScanResult:
 
 
 def builtin_detectors() -> list[Detector]:
-    """The Phase 1 detector set."""
+    """The Phase 1 detector set.
+
+    Ordering encodes precedence on overlaps: tools/workflow-bearing OpenAI
+    calls must be claimed before the plain-chat detector (chat skips calls
+    with a tool kwarg), and Responses-with-tools emits ``workflow`` before
+    chat can claim the call. LangGraph is independent (different framework
+    string) but precedes LangChain in case a repo imports both families.
+    """
     return [
-        OpenAIToolsDetector(),     # before chat detector — tools take precedence
+        OpenAIResponsesDetector(),  # before chat — tools-bearing Responses → workflow
+        OpenAIToolsDetector(),      # before chat — tools take precedence
+        PGVectorDetector(),         # before chat — RAG takes precedence
+        LangGraphDetector(),        # before LangChain — different framework, safer first
         OpenAIChatDetector(),
         LangChainDetector(),
         ChromaDBDetector(),

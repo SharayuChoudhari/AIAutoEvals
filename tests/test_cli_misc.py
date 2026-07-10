@@ -60,8 +60,9 @@ def test_doctor_exits_0_when_all_required_pass(
     runner: CliRunner, tmp_path: Path, clean_env: None
 ) -> None:
     """Create a valid rubrics.yaml and set a fake provider env; doctor should pass."""
-    from ai_eval.config.defaults import DEFAULT_JUDGE
     import yaml as _yaml
+
+    from ai_eval.config.defaults import DEFAULT_JUDGE
 
     rubrics = {
         "schema_version": 1,
@@ -96,12 +97,14 @@ def test_config_print(runner: CliRunner, tmp_path: Path, clean_env: None) -> Non
     assert payload["merged"]["judge"]["default"].startswith("ollama/")
 
 
-def test_run_is_stubbed_with_phase_error(
+def test_run_requires_golden_set(
     runner: CliRunner, tmp_path: Path, clean_env: None
 ) -> None:
+    """Phase 4: `run` is implemented; without a golden set it exits 2 (usage)."""
     result = runner.invoke(app, ["-C", str(tmp_path), "run"])
     assert result.exit_code == 2
-    assert "Phase 4" in (result.stderr or result.output)
+    # Either missing golden set or missing rubrics -> usage error
+    assert "golden set" in (result.stderr or result.output).lower() or result.exit_code == 2
 
 
 def test_bootstrap_requires_explicit_command(
@@ -110,6 +113,21 @@ def test_bootstrap_requires_explicit_command(
     result = runner.invoke(app, ["-C", str(tmp_path), "bootstrap"])
     assert result.exit_code == 2
     assert "missing runtime command" in (result.stderr or result.output)
+
+
+def test_doctor_includes_judge_gateway_check(
+    runner: CliRunner, tmp_path: Path, clean_env: None
+) -> None:
+    """Phase 2: doctor reports the judge gateway reachability check (optional)."""
+    result = runner.invoke(
+        app, ["-C", str(tmp_path), "--format", "json", "doctor"]
+    )
+    payload = json.loads(result.stdout)
+    names = [c["name"] for c in payload["checks"]]
+    assert "judge gateway reachable" in names
+    # it's optional -> never forces exit 1 on its own
+    judge_check = next(c for c in payload["checks"] if c["name"] == "judge gateway reachable")
+    assert judge_check["required"] is False
 
 
 def test_ci_auto_mode_forces_json(

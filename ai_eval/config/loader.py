@@ -34,8 +34,14 @@ class ResolvedConfig:
     user_config_path: Path | None = None
 
     def as_rubrics(self) -> RubricsConfig:
-        """Validate the merged dict against the Pydantic schema."""
-        return RubricsConfig.model_validate(self.data)
+        """Validate the merged dict against the Pydantic schema.
+
+        The ``rubric`` runtime namespace (engine/model/caps from env or CLI) is
+        control surface, not a ``RubricsConfig`` field, so it is stripped before
+        validation — ``RubricsConfig`` uses ``extra="forbid"``.
+        """
+        data = {k: v for k, v in self.data.items() if k != "rubric"}
+        return RubricsConfig.model_validate(data)
 
 
 def user_config_path() -> Path:
@@ -76,6 +82,15 @@ def _env_overrides() -> dict[str, Any]:
         "AI_EVAL_PARALLEL": ("defaults", "parallel"),
         "AI_EVAL_TOLERANCE": ("defaults", "tolerance"),
         "AI_EVAL_CACHE": ("defaults", "cache"),
+        # SLM rubric-engine runtime knobs. These are control surface, not
+        # rubrics.yaml schema fields, so they live under a `rubric` namespace
+        # surfaced by `config --print`. `init`/`analyze` read them via
+        # `load_resolved()`; CLI flags still override.
+        "AI_EVAL_RUBRIC_ENGINE": ("rubric", "engine"),
+        "AI_EVAL_RUBRIC_MODEL": ("rubric", "model"),
+        "AI_EVAL_RUBRIC_MAX_SNIPPET_CHARS": ("rubric", "max_snippet_chars"),
+        "AI_EVAL_RUBRIC_MAX_TASKS": ("rubric", "max_tasks"),
+        "AI_EVAL_RUBRIC_BUDGET_TOKENS": ("rubric", "budget_tokens"),
     }
     out: dict[str, Any] = {}
     for env_key, path in allowlist.items():
@@ -83,7 +98,7 @@ def _env_overrides() -> dict[str, Any]:
             continue
         raw = os.environ[env_key]
         value: Any = raw
-        if path[-1] in {"parallel"}:
+        if path[-1] in {"parallel", "max_snippet_chars", "max_tasks", "budget_tokens"}:
             try:
                 value = int(raw)
             except ValueError:

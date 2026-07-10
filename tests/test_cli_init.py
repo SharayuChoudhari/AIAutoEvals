@@ -23,7 +23,11 @@ def _run(runner: CliRunner, cwd: Path, *args: str):
 def test_init_dry_run_json(
     runner: CliRunner, tiny_repo: Path, clean_env: None
 ) -> None:
-    result = _run(runner, tiny_repo, "--format", "json", "init", "--dry-run")
+    # --rubric-engine rules reproduces the pre-SLM snapshot without ollama.
+    result = _run(
+        runner, tiny_repo, "--format", "json", "init", "--dry-run",
+        "--rubric-engine", "rules",
+    )
     assert result.exit_code == 0, result.stdout + (result.stderr or "")
     payload = json.loads(result.stdout)
     assert payload["schema_version"] == 1
@@ -31,6 +35,7 @@ def test_init_dry_run_json(
     assert payload["files_scanned"] >= 3
     names = {t["name"] for t in payload["tasks"]}
     assert {"customer_support_agent", "knowledge_base_retriever", "chat_chain"} <= names
+    assert payload["rubric_engine"] == "rules"
     # Nothing was actually written.
     assert not (tiny_repo / "eval" / "rubrics.yaml").exists()
 
@@ -42,7 +47,10 @@ def test_init_dry_run_shows_requires_force_when_files_exist(
     (tiny_repo / "eval").mkdir()
     (tiny_repo / "eval" / "rubrics.yaml").write_text("schema_version: 0\n", encoding="utf-8")
 
-    result = _run(runner, tiny_repo, "--format", "json", "init", "--dry-run")
+    result = _run(
+        runner, tiny_repo, "--format", "json", "init", "--dry-run",
+        "--rubric-engine", "rules",
+    )
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     # rubrics.yaml must appear in requires_force, not would_write.
@@ -58,7 +66,9 @@ def test_init_dry_run_shows_requires_force_when_files_exist(
 def test_init_writes_full_scaffold(
     runner: CliRunner, tiny_repo: Path, clean_env: None
 ) -> None:
-    result = _run(runner, tiny_repo, "--format", "json", "init")
+    result = _run(
+        runner, tiny_repo, "--format", "json", "init", "--rubric-engine", "rules"
+    )
     assert result.exit_code == 0, result.stderr or result.stdout
 
     rubrics_path = tiny_repo / "eval" / "rubrics.yaml"
@@ -117,7 +127,7 @@ def test_init_force_rewrites_rubrics_but_preserves_captures(
     }
     golden_path.write_text(json.dumps(captures), encoding="utf-8")
 
-    result = _run(runner, tiny_repo, "init", "--force")
+    result = _run(runner, tiny_repo, "init", "--force", "--rubric-engine", "rules")
     assert result.exit_code == 0, result.stderr or result.stdout
 
     # rubrics.yaml should be rewritten.
@@ -143,7 +153,10 @@ def test_init_reset_golden_discards_captures(
     }
     golden_path.write_text(json.dumps(captures), encoding="utf-8")
 
-    result = _run(runner, tiny_repo, "init", "--force", "--reset-golden")
+    result = _run(
+        runner, tiny_repo, "init", "--force", "--reset-golden",
+        "--rubric-engine", "rules",
+    )
     assert result.exit_code == 0
     golden_after = json.loads(golden_path.read_text(encoding="utf-8"))
     assert golden_after["tasks"].get("customer_support_agent") == [], (
@@ -159,6 +172,84 @@ def test_init_force_overwrites_rubrics_only(
     rubrics_path = tiny_repo / "eval" / "rubrics.yaml"
     rubrics_path.write_text("schema_version: 0\n", encoding="utf-8")
 
-    result = _run(runner, tiny_repo, "init", "--force")
+    result = _run(runner, tiny_repo, "init", "--force", "--rubric-engine", "rules")
     assert result.exit_code == 0, result.stderr or result.stdout
     assert "schema_version: 1" in rubrics_path.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# --rubric-engine slm (mocked client) and hard-fail on unreachable model
+# ---------------------------------------------------------------------------
+
+
+def test_init_slm_engine_writes_rubric_with_mocked_client(
+    runner: CliRunner, tiny_repo: Path, clean_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--rubric-engine slm with a mocked SLM client writes a rubric whose tasks
+    carry the SLM-classified type (no ollama needed)."""
+    from ai_eval.inference.slm import builder as slm_builder
+    from ai_eval.inference.slm.builder import _SLMMetric, _SLMRecovery, _SLMTask
+
+    def fake_complete(**kw):
+        rm = kw["response_model"]
+        if rm is _SLMTask:
+            return _SLMTask(
+                type="rag",
+                purpose="retrieval-augmented QA",
+                inputs=["query"],
+                outputs=["answer"],
+                metrics=[_SLMMetric(name="faithfulness")],
+            )
+        if rm is _SLMRecovery:
+            return _SLMRecovery()
+        raise AssertionError(f"unexpected response_model {rm!r}")
+
+    # The builder resolves the default client via the module-level name
+    # `_default_complete`; patching that name redirects the CLI path.
+    monkeypatch.setattr(slm_builder, "_default_complete", fake_complete)
+
+    result = _run(
+        runner, tiny_repo, "--format", "json", "init", "--rubric-engine", "slm"
+    )
+    assert result.exit_code == 0, result.stderr or result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["rubric_engine"] == "slm"
+    # The SLM re-typed at least one detected task as 'rag'.
+    types = {t["type"] for t in payload["tasks"]}
+    assert "rag" in types
+
+    rubrics_path = tiny_repo / "eval" / "rubrics.yaml"
+    assert rubrics_path.is_file()
+    rubrics = yaml.safe_load(rubrics_path.read_text(encoding="utf-8"))
+    assert rubrics["rubric_engine"] == "slm"
+    assert any(t["type"] == "rag" for t in rubrics["tasks"].values())
+
+
+def test_init_slm_engine_hard_fails_when_model_unreachable(
+    runner: CliRunner, tiny_repo: Path, clean_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the SLM is unavailable after retries, init must hard-fail (exit 1)
+    with an actionable remediation hint — never silently fall back to rules."""
+    from ai_eval.inference.slm import builder as slm_builder
+
+    def raising(**kw):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(slm_builder, "_default_complete", raising)
+
+    result = _run(runner, tiny_repo, "init", "--rubric-engine", "slm")
+    assert result.exit_code == 1, result.stdout
+    stderr = result.stderr or ""
+    # Remediation hint points the user at the rules fallback / ollama.
+    assert "--rubric-engine rules" in stderr
+    # No rubrics.yaml was written on failure.
+    assert not (tiny_repo / "eval" / "rubrics.yaml").exists()
+
+
+def test_init_rejects_invalid_rubric_engine(
+    runner: CliRunner, tiny_repo: Path, clean_env: None
+) -> None:
+    """An unknown --rubric-engine value is a usage error (exit 2)."""
+    result = _run(runner, tiny_repo, "init", "--rubric-engine", "magic")
+    assert result.exit_code == 2
+    assert "invalid --rubric-engine" in (result.stderr or "")

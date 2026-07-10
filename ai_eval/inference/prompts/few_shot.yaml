@@ -1,0 +1,123 @@
+# Few-shot examples for the SLM rubric classifier. Versioned with code.
+# Each example shows the task signature the SLM should produce for a given
+# code snippet shape. Kept deliberately short to stay within budget.
+
+- example: rag_raw_openai_manual_retrieval
+  context: |
+    file_path: services/rag.py
+    enclosing_function: tenant_qa
+    framework_hints: ["openai", "manual retrieval (no recognized vectorstore import)"]
+    snippet: |
+      from openai import OpenAI
+      def tenant_qa(query, tenant_id):
+          docs = sql_search(query, tenant_id)  # manual SQL retrieval
+          return OpenAI().chat.completions.create(
+              model="gpt-4o-mini",
+              messages=[{"role": "system", "content": build_prompt(query, docs)}],
+          )
+  expected:
+    purpose: "RAG with manual SQL retrieval filtered by tenant"
+    type: rag
+    inputs: ["query", "tenant_id"]
+    outputs: ["answer"]
+    metrics: ["context_precision", "faithfulness"]
+
+- example: booking_tool_calling
+  context: |
+    file_path: booking/appointments.py
+    enclosing_function: book_slot
+    framework_hints: ["openai tools"]
+    snippet: |
+      from openai import OpenAI
+      def book_slot(user_intent):
+          return OpenAI().chat.completions.create(
+              model="gpt-4o-mini",
+              messages=[{"role": "user", "content": user_intent}],
+              tools=[{"type": "function", "function": book_appointment_schema}],
+          )
+  expected:
+    purpose: "Appointment booking with slot selection tool-calling"
+    type: booking
+    inputs: ["user_intent"]
+    outputs: ["booking_confirmation"]
+    metrics: ["slot_filling_accuracy", "task_completion"]
+
+- example: scoring_rubric
+  context: |
+    file_path: eval/score.py
+    enclosing_function: grade_answer
+    framework_hints: ["openai chat (scoring)"]
+    snippet: |
+      from openai import OpenAI
+      def grade_answer(question, student_answer, rubric):
+          return OpenAI().chat.completions.create(
+              model="gpt-4o",
+              messages=[{"role": "system", "content": rubric_to_prompt(rubric)},
+                        {"role": "user", "content": student_answer}],
+          )
+  expected:
+    purpose: "Score student answers against a rubric"
+    type: scoring
+    inputs: ["question", "student_answer", "rubric"]
+    outputs: ["score"]
+    metrics: ["scoring_accuracy"]
+
+- example: document_extraction
+  context: |
+    file_path: extract/invoice.py
+    enclosing_function: parse_invoice
+    framework_hints: ["openai chat (extraction)"]
+    snippet: |
+      from openai import OpenAI
+      def parse_invoice(document_text):
+          return OpenAI().chat.completions.create(
+              model="gpt-4o-mini",
+              messages=[{"role": "system", "content": "Extract vendor, total, date as JSON."},
+                        {"role": "user", "content": document_text}],
+              response_format={"type": "json_object"},
+          )
+  expected:
+    purpose: "Extract structured fields from invoice documents to JSON"
+    type: extraction
+    inputs: ["document_text"]
+    outputs: ["vendor", "total", "date"]
+    metrics: ["extraction_field_accuracy"]
+
+- example: classification
+  context: |
+    file_path: classify/router.py
+    enclosing_function: route_intent
+    framework_hints: ["openai chat (classification)"]
+    snippet: |
+      from openai import OpenAI
+      def route_intent(message):
+          return OpenAI().chat.completions.create(
+              model="gpt-4o-mini",
+              messages=[{"role": "system", "content": "Classify into: billing, support, sales."},
+                        {"role": "user", "content": message}],
+          )
+  expected:
+    purpose: "Classify support messages into intent categories"
+    type: classification
+    inputs: ["message"]
+    outputs: ["intent"]
+    metrics: ["classification_f1"]
+
+- example: summarization
+  context: |
+    file_path: summarize/notes.py
+    enclosing_function: summarize
+    framework_hints: ["openai chat (summarization)"]
+    snippet: |
+      from openai import OpenAI
+      def summarize(long_text):
+          return OpenAI().chat.completions.create(
+              model="gpt-4o-mini",
+              messages=[{"role": "user", "content": long_text}],
+          )
+  expected:
+    purpose: "Summarize long-form text"
+    type: summarization
+    inputs: ["long_text"]
+    outputs: ["summary"]
+    metrics: ["summary_faithfulness"]

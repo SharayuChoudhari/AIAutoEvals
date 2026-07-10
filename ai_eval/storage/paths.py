@@ -21,6 +21,16 @@ class ProjectPaths:
         return self.eval_dir / "rubrics.yaml"
 
     @property
+    def hints_yaml(self) -> Path:
+        """Opt-in detection hints file (``eval/ai-eval.hints.yaml``).
+
+        Absence means "no hints". Sibling of ``rubrics.yaml`` so the eval
+        config (metrics/judges) stays separate from the detection
+        declaration.
+        """
+        return self.eval_dir / "ai-eval.hints.yaml"
+
+    @property
     def golden_set_json(self) -> Path:
         return self.eval_dir / "golden_set.json"
 

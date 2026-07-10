@@ -28,9 +28,15 @@ import yaml
 from ai_eval.cli.app import EXIT_GENERAL, EXIT_OK, EXIT_USAGE, GlobalOptions, OutputFormat
 from ai_eval.cli.render.json_out import dump as json_dump
 from ai_eval.cli.render.tables import stdout_console
+from ai_eval.cli.rubric_engine import (
+    VALID_ENGINES,
+    build_with_engine,
+    fail_engine_error,
+    make_caps,
+)
 from ai_eval.config.defaults import DEFAULT_JUDGE, DEFAULT_REGRESSION_JUDGE
 from ai_eval.inference.ast_scan import scan_repo
-from ai_eval.inference.synthesize import build_rubrics
+from ai_eval.inference.hints import merge_hints
 from ai_eval.scaffold import rubrics_writer
 from ai_eval.storage.paths import resolve_paths
 
@@ -38,6 +44,9 @@ from ai_eval.storage.paths import resolve_paths
 _UNSET = object()
 
 _RUBRICS_HEADER = rubrics_writer._HEADER
+
+#: Default rubric engine for `analyze`. Mirrors `init`; use `rules` to skip the SLM.
+DEFAULT_RUBRIC_ENGINE = "hybrid"
 
 
 class MergeStrategy(str, Enum):
@@ -115,9 +124,47 @@ def analyze_command(
         "--diff",
         help="Print a unified yaml diff.",
     ),
+    rubric_engine: str = typer.Option(
+        DEFAULT_RUBRIC_ENGINE,
+        "--rubric-engine",
+        help="Engine: rules (rule-only), slm (SLM-only), hybrid (rules then SLM).",
+    ),
+    rubric_model: str = typer.Option(
+        DEFAULT_JUDGE,
+        "--rubric-model",
+        help="SLM model id (litellm format) for slm/hybrid engines.",
+        show_default=True,
+    ),
+    rubric_max_snippet_chars: int = typer.Option(
+        1500,
+        "--rubric-max-snippet-chars",
+        help="Max chars of the enclosing-function snippet sent to the SLM per task.",
+        show_default=True,
+    ),
+    rubric_max_tasks: int = typer.Option(
+        25,
+        "--rubric-max-tasks",
+        help="Max number of detected tasks sent to the SLM (caps cost).",
+        show_default=True,
+    ),
+    rubric_budget_tokens: int = typer.Option(
+        0,
+        "--rubric-budget-tokens",
+        help="Hard total prompt token budget (0 = no cap).",
+        show_default=True,
+    ),
 ) -> None:
     opts: GlobalOptions = ctx.obj
     paths = resolve_paths(opts.cwd, eval_dir=None)
+
+    if rubric_engine not in VALID_ENGINES:
+        _err(
+            "invalid --rubric-engine",
+            what=f"got {rubric_engine!r}",
+            why=f"--rubric-engine must be one of: {', '.join(VALID_ENGINES)}",
+            fix=f"re-run with --rubric-engine {'|'.join(VALID_ENGINES)}",
+        )
+        raise typer.Exit(code=EXIT_USAGE)
 
     if not paths.rubrics_yaml.is_file():
         _err(
@@ -142,12 +189,38 @@ def analyze_command(
     existing = yaml.safe_load(raw_text) or {}
 
     scan = scan_repo(opts.cwd)
-    rubrics = build_rubrics(
-        scan,
-        judge_default=existing.get("judge", {}).get("default") or DEFAULT_JUDGE,
-        judge_regression=existing.get("judge", {}).get("regression_check")
-        or DEFAULT_REGRESSION_JUDGE,
-    )
+    # Merge opt-in hint tasks (eval/ai-eval.hints.yaml) into the AST scan
+    # before the rubric engine runs, so both the rules and SLM/hybrid engines
+    # see them. AST tasks win on (file_path, entry) collision; hints fill gaps.
+    try:
+        scan = merge_hints(scan, paths.hints_yaml)
+    except Exception as exc:
+        _err(
+            "failed to load hints file",
+            what=str(exc).splitlines()[0] if str(exc) else "hints file error",
+            why="eval/ai-eval.hints.yaml is malformed or violates the schema",
+            fix="fix the hints file, or remove it to skip hints",
+        )
+        raise typer.Exit(code=EXIT_GENERAL) from exc
+    try:
+        result = build_with_engine(
+            engine=rubric_engine,
+            scan=scan,
+            project_root=opts.cwd,
+            model=rubric_model,
+            judge_default=existing.get("judge", {}).get("default") or DEFAULT_JUDGE,
+            judge_regression=existing.get("judge", {}).get("regression_check")
+            or DEFAULT_REGRESSION_JUDGE,
+            caps=make_caps(
+                rubric_max_snippet_chars, rubric_max_tasks, rubric_budget_tokens
+            ),
+        )
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        fail_engine_error(exc)
+        return  # unreachable; fail_engine_error exits
+    rubrics = result.rubrics
     incoming = rubrics_writer.to_dict(rubrics)
 
     conflicts: list[str] = []
@@ -171,6 +244,7 @@ def analyze_command(
                 "wrote": write and not no_change,
                 "no_change": no_change,
                 "merge_strategy": merge_strategy.value,
+                "rubric_engine": rubrics.rubric_engine,
                 "conflicts": conflicts,
                 "files_scanned": scan.files_scanned,
                 "tasks": [
@@ -214,6 +288,26 @@ def analyze_command(
         raise typer.Exit(code=EXIT_GENERAL)
 
     if write and not no_change:
+        # Re-validate the merged dict against the schema before touching disk:
+        # `_merge_dicts` can splice stale existing keys back in (KEEP) that the
+        # open schema now rejects (e.g. unregistered metric names under strict
+        # mode). Refuse to persist an invalid merge rather than corrupting the
+        # file — the backup is still pristine because we haven't written yet.
+        from pydantic import ValidationError
+
+        from ai_eval.config.schema import RubricsConfig
+
+        try:
+            RubricsConfig.model_validate(merged)
+        except ValidationError as exc:
+            _err(
+                "merged rubrics.yaml would be invalid — refusing to write",
+                what=str(exc).splitlines()[0] if str(exc) else "validation error",
+                why="merging kept/overwrote a key that violates the schema",
+                fix="edit eval/rubrics.yaml by hand, or re-run with --merge-strategy overwrite",
+            )
+            raise typer.Exit(code=EXIT_GENERAL) from exc
+
         bak = _make_backup(paths.rubrics_yaml)
         try:
             _atomic_write(paths.rubrics_yaml, new_text)
