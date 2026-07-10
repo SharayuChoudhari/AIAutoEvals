@@ -1,4 +1,4 @@
-"""E2E test for `ai-eval bootstrap`.
+"""E2E test for `ai-evals bootstrap`.
 
 The runtime command is a Python snippet that installs a fake ``openai`` module,
 calls the bootstrap wrappers directly, and emits captures to the sink path

@@ -12,7 +12,7 @@ DEFAULT_REGRESSION_JUDGE: str = "openai/gpt-4o-mini"
 
 # Directories the tool creates / reads, relative to the project cwd.
 DEFAULT_EVAL_DIR: str = "eval"
-DEFAULT_STATE_DIR: str = ".ai-eval"
+DEFAULT_STATE_DIR: str = ".ai-evals"
 
 # Runner defaults.
 DEFAULT_PARALLEL: int = 4

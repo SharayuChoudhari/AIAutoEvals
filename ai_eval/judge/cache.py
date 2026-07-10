@@ -1,7 +1,7 @@
 """Content-addressed judge-response cache.
 
 Key = ``sha256(model_id || prompt_text || schema_id)``. Stored as JSON under
-``.ai-eval/cache/judge/<sha>.json``. Deterministic at ``temperature=0`` (the
+``.ai-evals/cache/judge/<sha>.json``. Deterministic at ``temperature=0`` (the
 default), so a cache hit short-circuits the judge call entirely.
 
 ``--no-cache`` (``enabled=False``) skips both reads and writes; the cache

@@ -104,7 +104,7 @@ class TaskJudgeOverrides(BaseModel):
 
 
 class HintTaskSpec(BaseModel):
-    """One entry in ``eval/ai-eval.hints.yaml``.
+    """One entry in ``eval/ai-evals.hints.yaml``.
 
     The opt-in hints file is the escape hatch for orchestration the AST
     detectors can't see (Temporal, Prefect, Airflow, proprietary state loops)
@@ -134,7 +134,7 @@ class HintTaskSpec(BaseModel):
 
 
 class HintsFile(BaseModel):
-    """Top-level schema for ``eval/ai-eval.hints.yaml``.
+    """Top-level schema for ``eval/ai-evals.hints.yaml``.
 
     Absent or empty file means "no hints". Each hint becomes a
     :class:`~ai_eval.inference.detectors.base.DetectedTask` with

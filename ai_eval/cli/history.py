@@ -1,4 +1,4 @@
-"""`ai-eval history` — list, show, prune, export past runs."""
+"""`ai-evals history` — list, show, prune, export past runs."""
 
 from __future__ import annotations
 

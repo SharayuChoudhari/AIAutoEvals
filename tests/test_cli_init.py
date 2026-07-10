@@ -1,4 +1,4 @@
-"""End-to-end coverage for `ai-eval init` on a tiny fixture repo."""
+"""End-to-end coverage for `ai-evals init` on a tiny fixture repo."""
 
 from __future__ import annotations
 
@@ -74,14 +74,14 @@ def test_init_writes_full_scaffold(
     rubrics_path = tiny_repo / "eval" / "rubrics.yaml"
     golden_path = tiny_repo / "eval" / "golden_set.json"
     tests_path = tiny_repo / "eval" / "tests.py"
-    state_dir = tiny_repo / ".ai-eval"
+    state_dir = tiny_repo / ".ai-evals"
     gitignore = tiny_repo / ".gitignore"
 
     assert rubrics_path.is_file()
     assert golden_path.is_file()
     assert tests_path.is_file()
     assert state_dir.is_dir()
-    assert ".ai-eval/" in gitignore.read_text(encoding="utf-8")
+    assert ".ai-evals/" in gitignore.read_text(encoding="utf-8")
 
     rubrics = yaml.safe_load(rubrics_path.read_text(encoding="utf-8"))
     assert rubrics["schema_version"] == 1

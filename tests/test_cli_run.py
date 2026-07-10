@@ -1,4 +1,4 @@
-"""CLI tests for `ai-eval run` with a fake judge transport."""
+"""CLI tests for `ai-evals run` with a fake judge transport."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ def _setup_repo(tmp_path: Path, *, metric_threshold: float = 0.5,
         ),
         encoding="utf-8",
     )
-    (tmp_path / ".ai-eval").mkdir(exist_ok=True)
+    (tmp_path / ".ai-evals").mkdir(exist_ok=True)
 
 
 def test_run_json_pass(
@@ -182,7 +182,7 @@ def test_run_unregistered_metric_exit_1(
         }}),
         encoding="utf-8",
     )
-    (tmp_path / ".ai-eval").mkdir(exist_ok=True)
+    (tmp_path / ".ai-evals").mkdir(exist_ok=True)
     result = runner.invoke(
         app, ["-C", str(tmp_path), "--format", "json", "run"]
     )
@@ -201,7 +201,7 @@ def test_run_missing_golden_set(
                     "tasks": {}}),
         encoding="utf-8",
     )
-    (tmp_path / ".ai-eval").mkdir(exist_ok=True)
+    (tmp_path / ".ai-evals").mkdir(exist_ok=True)
     result = runner.invoke(app, ["-C", str(tmp_path), "run"])
     assert result.exit_code == 2
     assert "golden set" in (result.stderr or result.output).lower()
@@ -213,5 +213,5 @@ def test_run_saves_to_history(
     _fake_complete_factory(monkeypatch, score=0.9)
     _setup_repo(tmp_path, metric_threshold=0.5)
     runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "run"])
-    history = json.loads((tmp_path / ".ai-eval" / "history.json").read_text())
+    history = json.loads((tmp_path / ".ai-evals" / "history.json").read_text())
     assert len(history["runs"]) == 1

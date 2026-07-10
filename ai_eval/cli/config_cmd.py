@@ -1,4 +1,4 @@
-"""`ai-eval config` — inspect resolved configuration."""
+"""`ai-evals config` — inspect resolved configuration."""
 
 from __future__ import annotations
 

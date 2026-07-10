@@ -1,4 +1,4 @@
-"""`ai-eval bootstrap` — capture real runtime traces into a golden set.
+"""`ai-evals bootstrap` — capture real runtime traces into a golden set.
 
 Runs the user's command (everything after ``--``) in a child subprocess with a
 generated ``sitecustomize.py`` that monkey-patches the LLM/retrieval
@@ -55,7 +55,7 @@ def bootstrap_command(
         typer.echo("error: missing runtime command", err=True)
         typer.echo("  what: no `-- <command>` provided", err=True)
         typer.echo("  why:  bootstrap requires an explicit runtime to trace", err=True)
-        typer.echo("  fix:  ai-eval bootstrap -- pytest -q", err=True)
+        typer.echo("  fix:  ai-evals bootstrap -- pytest -q", err=True)
         raise typer.Exit(code=EXIT_USAGE)
 
     if no_instrument:
@@ -89,7 +89,7 @@ def bootstrap_command(
 
     golden_path = Path(out) if out else paths.golden_set_json
 
-    with tempfile.TemporaryDirectory(prefix="ai-eval-bootstrap-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="ai-evals-bootstrap-") as tmp:
         shim_dir = Path(tmp)
         sink_path = shim_dir / "captures.jsonl"
         # ensure sink exists so the child's makedirs is a no-op

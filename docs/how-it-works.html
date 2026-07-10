@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ai-eval — How It Works</title>
+  <title>ai-evals — How It Works</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -163,7 +163,7 @@
 
 <nav id="sidebar">
   <div class="logo">
-    <span>ai-eval</span>
+    <span>ai-evals</span>
     <small>v0.1.0 · Phase 1</small>
   </div>
 
@@ -198,9 +198,9 @@
 
 <main>
 
-  <h1>How ai-eval works</h1>
+  <h1>How ai-evals works</h1>
   <p class="subtitle">
-    A deep-dive into the codebase — from a first <code>ai-eval init</code> all
+    A deep-dive into the codebase — from a first <code>ai-evals init</code> all
     the way to how every module connects.
   </p>
 
@@ -214,10 +214,10 @@
   </div>
 
 
-  <h2 id="what-is-it">What is ai-eval?</h2>
+  <h2 id="what-is-it">What is ai-evals?</h2>
 
   <p>
-    <strong>ai-eval</strong> is a zero-config, repo-aware, model-agnostic AI
+    <strong>ai-evals</strong> is a zero-config, repo-aware, model-agnostic AI
     evaluation CLI. You point it at any Python project that uses OpenAI,
     LangChain, ChromaDB, or similar frameworks, and it:
   </p>
@@ -257,21 +257,21 @@
   │  tests_writer               │  →  eval/tests.py
   └────────────┬────────────────┘
                │
-               ▼  user runs  ai-eval bootstrap -- pytest
+               ▼  user runs  ai-evals bootstrap -- pytest
   ┌─────────────────────────────┐
   │  bootstrap/  (Phase 3 🔜)  │  →  eval/golden_set.json  (real captures)
   │  wrappers  ▸  tracer        │
   └────────────┬────────────────┘
                │
-               ▼  user runs  ai-eval run
+               ▼  user runs  ai-evals run
   ┌─────────────────────────────┐
   │  judge/     (Phase 2 🔜)   │  →  LiteLLM  →  Ollama / OpenAI / …
-  │  runner/    (Phase 4 🔜)   │  →  metrics  →  .ai-eval/history.json
+  │  runner/    (Phase 4 🔜)   │  →  metrics  →  .ai-evals/history.json
   └────────────┬────────────────┘
                │
                ▼
   ┌─────────────────────────────┐
-  │  insights/  (Phase 4 🔜)   │  →  ai-eval diff  →  regression report
+  │  insights/  (Phase 4 🔜)   │  →  ai-evals diff  →  regression report
   └─────────────────────────────┘
 </pre>
   </div>
@@ -321,10 +321,10 @@
     <br>
     <span class="tree-indent">├── </span><span class="tree-dir">cli/</span> &nbsp;<span class="tree-cm">— Typer app + one module per command</span><br>
     <span class="tree-indent">│   ├── </span><span class="tree-file">app.py</span> &nbsp;<span class="tree-cm">— root Typer instance, GlobalOptions, CI detection</span><br>
-    <span class="tree-indent">│   ├── </span><span class="tree-file">init.py</span> &nbsp;<span class="tree-cm">— `ai-eval init`</span><br>
-    <span class="tree-indent">│   ├── </span><span class="tree-file">analyze.py</span> &nbsp;<span class="tree-cm">— `ai-eval analyze`</span><br>
-    <span class="tree-indent">│   ├── </span><span class="tree-file">doctor.py</span> &nbsp;<span class="tree-cm">— `ai-eval doctor` (read-only)</span><br>
-    <span class="tree-indent">│   ├── </span><span class="tree-file">config_cmd.py</span> &nbsp;<span class="tree-cm">— `ai-eval config`</span><br>
+    <span class="tree-indent">│   ├── </span><span class="tree-file">init.py</span> &nbsp;<span class="tree-cm">— `ai-evals init`</span><br>
+    <span class="tree-indent">│   ├── </span><span class="tree-file">analyze.py</span> &nbsp;<span class="tree-cm">— `ai-evals analyze`</span><br>
+    <span class="tree-indent">│   ├── </span><span class="tree-file">doctor.py</span> &nbsp;<span class="tree-cm">— `ai-evals doctor` (read-only)</span><br>
+    <span class="tree-indent">│   ├── </span><span class="tree-file">config_cmd.py</span> &nbsp;<span class="tree-cm">— `ai-evals config`</span><br>
     <span class="tree-indent">│   ├── </span><span class="tree-file">stubs.py</span> &nbsp;<span class="tree-cm">— Phase 2-4 placeholder commands</span><br>
     <span class="tree-indent">│   ├── </span><span class="tree-file">bootstrap.py run.py diff.py …</span> &nbsp;<span class="tree-cm">— stubs for future phases</span><br>
     <span class="tree-indent">│   └── </span><span class="tree-dir">render/</span><br>
@@ -347,7 +347,7 @@
     <span class="tree-indent">│   ├── </span><span class="tree-file">rubrics_writer.py</span> &nbsp;<span class="tree-cm">— RubricsConfig → YAML</span><br>
     <span class="tree-indent">│   ├── </span><span class="tree-file">golden_writer.py</span> &nbsp;<span class="tree-cm">— safe write/merge of golden_set.json</span><br>
     <span class="tree-indent">│   ├── </span><span class="tree-file">tests_writer.py</span> &nbsp;<span class="tree-cm">— writes eval/tests.py from template</span><br>
-    <span class="tree-indent">│   ├── </span><span class="tree-file">gitignore_patch.py</span> &nbsp;<span class="tree-cm">— appends .ai-eval/ to .gitignore</span><br>
+    <span class="tree-indent">│   ├── </span><span class="tree-file">gitignore_patch.py</span> &nbsp;<span class="tree-cm">— appends .ai-evals/ to .gitignore</span><br>
     <span class="tree-indent">│   └── </span><span class="tree-dir">templates/tests_py.tmpl</span><br>
     <br>
     <span class="tree-indent">├── </span><span class="tree-dir">config/</span><br>
@@ -364,9 +364,9 @@
   </div>
 
 
-  <h2 id="files-created">Files ai-eval creates in your repo</h2>
+  <h2 id="files-created">Files ai-evals creates in your repo</h2>
 
-  <p>After a successful <code>ai-eval init</code> your project gets two new
+  <p>After a successful <code>ai-evals init</code> your project gets two new
   top-level directories:</p>
 
   <div class="tree">
@@ -374,9 +374,9 @@
     <span class="tree-indent">├── </span><span class="tree-dir">eval/</span> &nbsp;<span class="tree-cm">← checked into git</span><br>
     <span class="tree-indent">│   ├── </span><span class="tree-file">rubrics.yaml</span> &nbsp;<span class="tree-cm">— source of truth: tasks, thresholds, judges</span><br>
     <span class="tree-indent">│   ├── </span><span class="tree-file">golden_set.json</span> &nbsp;<span class="tree-cm">— captured I/O examples (filled by bootstrap)</span><br>
-    <span class="tree-indent">│   └── </span><span class="tree-file">tests.py</span> &nbsp;<span class="tree-cm">— pytest entry point that calls ai-eval run</span><br>
+    <span class="tree-indent">│   └── </span><span class="tree-file">tests.py</span> &nbsp;<span class="tree-cm">— pytest entry point that calls ai-evals run</span><br>
     <br>
-    <span class="tree-indent">└── </span><span class="tree-dir">.ai-eval/</span> &nbsp;<span class="tree-cm">← gitignored local cache</span><br>
+    <span class="tree-indent">└── </span><span class="tree-dir">.ai-evals/</span> &nbsp;<span class="tree-cm">← gitignored local cache</span><br>
     <span class="tree-indent">    ├── </span><span class="tree-file">history.json</span> &nbsp;<span class="tree-cm">— rolling list of past run summaries</span><br>
     <span class="tree-indent">    ├── </span><span class="tree-dir">runs/r_&lt;id&gt;/</span> &nbsp;<span class="tree-cm">— full record + traces per run</span><br>
     <span class="tree-indent">    └── </span><span class="tree-dir">cache/judge/</span> &nbsp;<span class="tree-cm">— content-addressed judge response cache</span><br>
@@ -384,8 +384,8 @@
 
   <div class="callout warn">
     <span class="icon">⚠️</span>
-    <p><strong><code>eval/</code> is checked in; <code>.ai-eval/</code> is local.</strong>
-    The tool appends <code>.ai-eval/</code> to your <code>.gitignore</code> automatically.
+    <p><strong><code>eval/</code> is checked in; <code>.ai-evals/</code> is local.</strong>
+    The tool appends <code>.ai-evals/</code> to your <code>.gitignore</code> automatically.
     <code>golden_set.json</code> contains your bootstrap captures — treat it like
     a test fixture and commit it.</p>
   </div>
@@ -393,82 +393,82 @@
 
   <h2 id="cli-surface">CLI commands</h2>
 
-  <p>All commands follow the shape <code>ai-eval &lt;command&gt; [flags]</code> — max one level of nesting.</p>
+  <p>All commands follow the shape <code>ai-evals &lt;command&gt; [flags]</code> — max one level of nesting.</p>
 
   <div class="cmd-grid">
 
     <div class="cmd-card">
-      <code class="cmd-name">ai-eval init</code>
+      <code class="cmd-name">ai-evals init</code>
       <p>Scan the repo, detect AI tasks, write <code>eval/rubrics.yaml</code>,
       <code>golden_set.json</code> stub, and <code>tests.py</code>.</p>
       <div class="phase-row"><span class="badge badge-done">Phase 1</span></div>
     </div>
 
     <div class="cmd-card">
-      <code class="cmd-name">ai-eval analyze</code>
+      <code class="cmd-name">ai-evals analyze</code>
       <p>Re-run detection and merge new findings into the existing
       <code>rubrics.yaml</code>. Default is dry-run; use <code>--write</code> to apply.</p>
       <div class="phase-row"><span class="badge badge-done">Phase 1</span></div>
     </div>
 
     <div class="cmd-card">
-      <code class="cmd-name">ai-eval doctor</code>
+      <code class="cmd-name">ai-evals doctor</code>
       <p>Read-only environment check: Python version, deps, provider creds,
       rubrics validity, state-dir writability. Exits 1 if any check fails.</p>
       <div class="phase-row"><span class="badge badge-done">Phase 1</span></div>
     </div>
 
     <div class="cmd-card">
-      <code class="cmd-name">ai-eval config</code>
+      <code class="cmd-name">ai-evals config</code>
       <p>Print the merged config with per-key source provenance
       (<em>cli → env → rubrics.yaml → user-global → builtin</em>).</p>
       <div class="phase-row"><span class="badge badge-done">Phase 1</span></div>
     </div>
 
     <div class="cmd-card">
-      <code class="cmd-name">ai-eval bootstrap -- &lt;cmd&gt;</code>
+      <code class="cmd-name">ai-evals bootstrap -- &lt;cmd&gt;</code>
       <p>Monkey-patch frameworks, run your tests, capture live I/O into
       <code>golden_set.json</code>. Requires explicit <code>-- pytest</code> etc.</p>
       <div class="phase-row"><span class="badge badge-soon">Phase 3 stub</span></div>
     </div>
 
     <div class="cmd-card">
-      <code class="cmd-name">ai-eval run</code>
+      <code class="cmd-name">ai-evals run</code>
       <p>Execute the full eval suite against the golden set through the judge
       gateway. Supports <code>--fail-on-regression</code> for CI gating.</p>
       <div class="phase-row"><span class="badge badge-future">Phase 4 stub</span></div>
     </div>
 
     <div class="cmd-card">
-      <code class="cmd-name">ai-eval diff</code>
+      <code class="cmd-name">ai-evals diff</code>
       <p>Show why a run regressed by feeding paired traces through the
       regression judge for a "why it failed" narrative.</p>
       <div class="phase-row"><span class="badge badge-future">Phase 4 stub</span></div>
     </div>
 
     <div class="cmd-card">
-      <code class="cmd-name">ai-eval judge</code>
+      <code class="cmd-name">ai-evals judge</code>
       <p>Sanity-check configured judge models: <code>--list</code>, <code>--ping</code>,
       and <code>--prompt</code> for one-shot testing.</p>
       <div class="phase-row"><span class="badge badge-soon">Phase 2 stub</span></div>
     </div>
 
     <div class="cmd-card">
-      <code class="cmd-name">ai-eval report</code>
+      <code class="cmd-name">ai-evals report</code>
       <p>Render a stored run as human / JSON / Markdown / HTML.</p>
       <div class="phase-row"><span class="badge badge-future">Phase 4 stub</span></div>
     </div>
 
     <div class="cmd-card">
-      <code class="cmd-name">ai-eval history</code>
+      <code class="cmd-name">ai-evals history</code>
       <p>List, show, prune, or export past runs from
-      <code>.ai-eval/history.json</code>.</p>
+      <code>.ai-evals/history.json</code>.</p>
       <div class="phase-row"><span class="badge badge-future">Phase 4 stub</span></div>
     </div>
 
     <div class="cmd-card">
-      <code class="cmd-name">ai-eval version</code>
-      <p>Print <code>ai-eval X.Y.Z (python A.B)</code> and exit.</p>
+      <code class="cmd-name">ai-evals version</code>
+      <p>Print <code>ai-evals X.Y.Z (python A.B)</code> and exit.</p>
       <div class="phase-row"><span class="badge badge-done">Phase 1</span></div>
     </div>
 
@@ -508,7 +508,7 @@
   <div class="callout info">
     <span class="icon">ℹ️</span>
     <p>CI auto-mode is per the design decision in
-    <code>.kilo/plans/ai-eval-cli-and-system-design.md §4 Q6</code>. The
+    <code>.kilo/plans/ai-evals-cli-and-system-design.md §4 Q6</code>. The
     behavior is documented and user-overridable by explicitly passing e.g.
     <code>--format human</code>.</p>
   </div>
@@ -537,7 +537,7 @@
 
   <p>Implemented in <code>config/loader.py → load_resolved()</code>.
   The five layers are deep-merged from lowest to highest priority.
-  Each key tracks its winning source for <code>ai-eval config --print</code>.</p>
+  Each key tracks its winning source for <code>ai-evals config --print</code>.</p>
 
   <div class="flow">
     <div class="flow-step">
@@ -550,7 +550,7 @@
     <div class="flow-step">
       <div class="flow-line"><div class="flow-dot" style="background:var(--muted)"></div><div class="flow-connector"></div></div>
       <div class="flow-body">
-        <strong>4. User-global <code>~/.config/ai-eval/config.yaml</code></strong>
+        <strong>4. User-global <code>~/.config/ai-evals/config.yaml</code></strong>
         <p>Optional. Set your personal default judge model here once.</p>
       </div>
     </div>
@@ -590,7 +590,7 @@
   <h3>scan_repo — the main entry point</h3>
 
   <p><code>inference/ast_scan.py → scan_repo(root)</code> is the top-level
-  function called by <code>ai-eval init</code> and <code>ai-eval analyze</code>.
+  function called by <code>ai-evals init</code> and <code>ai-evals analyze</code>.
   Here is what it does in order:</p>
 
   <div class="flow">
@@ -814,13 +814,13 @@ chain[-3:] == ['chat', 'completions', 'create']  <span class="cm"># → True ✓
 
   <h3>gitignore_patch</h3>
   <p>Reads the existing <code>.gitignore</code>, checks line-by-line for
-  <code>.ai-eval/</code>, and appends the block only when absent. Never
+  <code>.ai-evals/</code>, and appends the block only when absent. Never
   touches any existing content.</p>
 
 
   <h2 id="data-contracts">Data contracts (on-disk JSON/YAML schemas)</h2>
 
-  <p>Every file written by ai-eval embeds <code>schema_version: 1</code>.
+  <p>Every file written by ai-evals embeds <code>schema_version: 1</code>.
   Breaking changes bump the version and require a migration path in
   <code>config/loader.py</code>.</p>
 
@@ -924,8 +924,8 @@ tasks:
   <ul>
     <li>
       <strong>Write boundary.</strong> The tool never writes outside
-      <code>&lt;cwd&gt;/eval/</code>, <code>&lt;cwd&gt;/.ai-eval/</code>, or
-      <code>~/.config/ai-eval/</code> unless <code>--out</code> is passed.
+      <code>&lt;cwd&gt;/eval/</code>, <code>&lt;cwd&gt;/.ai-evals/</code>, or
+      <code>~/.config/ai-evals/</code> unless <code>--out</code> is passed.
     </li>
     <li>
       <strong>Read boundary.</strong> <code>ast_scan</code> respects
@@ -1006,7 +1006,7 @@ tasks:
       <tr>
         <td><code>judge/gateway.py</code></td>
         <td>2</td>
-        <td>LiteLLM facade — single seam between ai-eval and any LLM provider</td>
+        <td>LiteLLM facade — single seam between ai-evals and any LLM provider</td>
       </tr>
       <tr>
         <td><code>judge/prompts/</code></td>
@@ -1016,7 +1016,7 @@ tasks:
       <tr>
         <td><code>judge/cache.py</code></td>
         <td>2</td>
-        <td>Content-addressed SHA-256 cache under <code>.ai-eval/cache/judge/</code></td>
+        <td>Content-addressed SHA-256 cache under <code>.ai-evals/cache/judge/</code></td>
       </tr>
       <tr>
         <td><code>bootstrap/wrappers.py</code></td>
@@ -1049,8 +1049,8 @@ tasks:
   <hr>
 
   <p style="color:var(--muted); font-size:13px; text-align:center; padding-top:8px">
-    Generated from source — <code>ai-eval v0.1.0</code> · Phase 1 complete ·
-    <code>.kilo/plans/ai-eval-cli-and-system-design.md</code>
+    Generated from source — <code>ai-evals v0.1.0</code> · Phase 1 complete ·
+    <code>.kilo/plans/ai-evals-cli-and-system-design.md</code>
   </p>
 
 </main>

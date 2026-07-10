@@ -1,8 +1,8 @@
-"""`ai-eval init` — first-run scaffold.
+"""`ai-evals init` — first-run scaffold.
 
 Per design §1.2:
 - runs inference, writes `eval/rubrics.yaml`, `eval/golden_set.json` stub,
-  `eval/tests.py`, and ensures `.ai-eval/` state dir exists.
+  `eval/tests.py`, and ensures `.ai-evals/` state dir exists.
 - flags: --force, --dry-run, --judge-default, --judge-regression, --frameworks,
   --include, --exclude.
 - exit codes: 0 ok, 1 write failed, 2 invalid flags.
@@ -198,7 +198,7 @@ def init_command(
             _err(
                 "failed to load hints file",
                 what=str(exc).splitlines()[0] if str(exc) else "hints file error",
-                why="eval/ai-eval.hints.yaml is malformed or violates the schema",
+                why="eval/ai-evals.hints.yaml is malformed or violates the schema",
                 fix="fix the hints file, or remove it to skip hints",
             )
             raise typer.Exit(code=EXIT_GENERAL) from exc
@@ -257,7 +257,7 @@ def init_command(
             "eval/ scaffold files already exist",
             what=f"would overwrite: {rels}",
             why="init is a fresh-scaffold command",
-            fix="re-run with --force, or use `ai-eval analyze` to merge rubrics changes",
+            fix="re-run with --force, or use `ai-evals analyze` to merge rubrics changes",
         )
         raise typer.Exit(code=EXIT_USAGE)
 
@@ -275,7 +275,7 @@ def init_command(
         _err(
             "failed to load hints file",
             what=str(exc).splitlines()[0] if str(exc) else "hints file error",
-            why="eval/ai-eval.hints.yaml is malformed or violates the schema",
+            why="eval/ai-evals.hints.yaml is malformed or violates the schema",
             fix="fix the hints file, or remove it to skip hints",
         )
         raise typer.Exit(code=EXIT_GENERAL) from exc
@@ -352,7 +352,7 @@ def init_command(
                     "tasks": [
                         {"name": n, "type": t, "file_path": p} for n, t, p in tasks_view
                     ],
-                    "next": "ai-eval bootstrap -- pytest",
+                    "next": "ai-evals bootstrap -- pytest",
                 }
             )
     else:
@@ -361,7 +361,7 @@ def init_command(
             elapsed_seconds=scan.elapsed_seconds,
             written=written,
             tasks=tasks_view,
-            next_command="ai-eval bootstrap -- pytest",
+            next_command="ai-evals bootstrap -- pytest",
             no_color=opts.no_color,
         )
     sys.stdout.flush()

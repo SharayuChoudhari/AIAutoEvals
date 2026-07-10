@@ -41,7 +41,7 @@ def get_async_client() -> Any:
         raise JudgeUnavailable(
             "the judge gateway requires `litellm` and `instructor`",
             why="dependencies are not installed",
-            fix="pip install litellm instructor (or `ai-eval[judge]`)",
+            fix="pip install litellm instructor (or `ai-evals`)",
         ) from exc
     # Silence litellm's verbose provider banners: it prints "Provider List"
     # links to stdout on first provider lookup, which corrupts the JSON data

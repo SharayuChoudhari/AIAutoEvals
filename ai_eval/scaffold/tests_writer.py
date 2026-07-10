@@ -1,4 +1,4 @@
-"""Write the pytest entry point that calls `ai-eval run`."""
+"""Write the pytest entry point that calls `ai-evals run`."""
 
 from __future__ import annotations
 

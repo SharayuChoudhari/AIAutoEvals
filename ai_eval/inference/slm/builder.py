@@ -11,7 +11,7 @@ enclosing-function snippet + framework hints. The empty-evidence fallback makes
 one repo-level call over entry-point files.
 
 Determinism: ``temperature=0`` + an evidence-hash keyed file cache under
-``.ai-eval/rubric_cache/``. Hard-fail on SLM unavailability via
+``.ai-evals/rubric_cache/``. Hard-fail on SLM unavailability via
 :class:`RubricEngineError` (no silent fallback to rules — use
 ``--rubric-engine rules`` for that).
 """

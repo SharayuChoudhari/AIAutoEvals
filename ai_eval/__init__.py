@@ -1,7 +1,13 @@
-"""ai-eval — zero-config, repo-aware, model-agnostic AI evaluation.
+"""ai-evals — zero-config, repo-aware, model-agnostic AI evaluation.
 
-See `.kilo/plans/ai-eval-cli-and-system-design.md` for the full system design.
+See `.kilo/plans/ai-evals-cli-and-system-design.md` for the full system design.
 """
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("ai-evals")
+except PackageNotFoundError:  # editable/source checkout without install
+    __version__ = "0.0.0+unknown"
+
 __all__ = ["__version__"]

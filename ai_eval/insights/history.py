@@ -1,7 +1,7 @@
-"""Run history (``.ai-eval/history.json``).
+"""Run history (``.ai-evals/history.json``).
 
 A list of slim records: ``{id, started_at, summary, git.sha, tags}``. Full run
-records live under ``.ai-eval/runs/<id>/``. Writes are guarded by an advisory
+records live under ``.ai-evals/runs/<id>/``. Writes are guarded by an advisory
 lock (:mod:`ai_eval.storage.locks`).
 """
 

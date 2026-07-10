@@ -24,7 +24,7 @@ def render_init_summary(
     next_command: str,
     no_color: bool,
 ) -> None:
-    """Render the human-form summary for `ai-eval init` per design §1.2."""
+    """Render the human-form summary for `ai-evals init` per design §1.2."""
     console = stdout_console(no_color=no_color)
     console.print(
         f"{state_glyph(PASS, no_color=no_color)} scanned {files_scanned} files "
@@ -54,7 +54,7 @@ def render_dry_run_summary(
     would_write: Iterable[str],
     no_color: bool,
 ) -> None:
-    """Render `ai-eval init --dry-run` output."""
+    """Render `ai-evals init --dry-run` output."""
     console = stdout_console(no_color=no_color)
     console.print(
         f"{state_glyph(INFO, no_color=no_color)} dry-run: scanned {files_scanned} files"

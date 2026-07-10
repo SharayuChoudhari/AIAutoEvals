@@ -16,7 +16,7 @@ from ai_eval.config.schema import RubricsConfig
 
 
 def empty_stub(rubrics: RubricsConfig) -> dict:
-    """An empty golden set keyed by task — to be filled by `ai-eval bootstrap`."""
+    """An empty golden set keyed by task — to be filled by `ai-evals bootstrap`."""
     return {
         "schema_version": SCHEMA_VERSION,
         "tasks": {name: [] for name in rubrics.tasks},
@@ -99,10 +99,11 @@ def write_stub(
         return "overwrote"
 
     # Merge: keep existing capture arrays; add empty lists for any new task names.
-    existing_tasks = existing.get("tasks") if isinstance(existing.get("tasks"), dict) else {}
+    raw_tasks = existing.get("tasks")
+    existing_tasks: dict[str, list] = raw_tasks if isinstance(raw_tasks, dict) else {}
     merged_tasks: dict[str, list] = {}
     # Preserve every existing task (including ones removed from rubrics, so the
-    # user can re-add them or prune via `ai-eval history`).
+    # user can re-add them or prune via `ai-evals history`).
     for name, captures in existing_tasks.items():
         merged_tasks[name] = captures if isinstance(captures, list) else []
     for name in rubrics.tasks:

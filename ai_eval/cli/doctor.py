@@ -1,11 +1,11 @@
-"""`ai-eval doctor` — read-only environment check.
+"""`ai-evals doctor` — read-only environment check.
 
 Per plan §1.2 and §2.12: doctor is **always safe, read-only**. It never
 creates directories, never writes files, and never modifies any state.
 
 Exit codes (plan §1.8):
   0 — all checks pass
-  1 — any required check fails (so CI can gate on `ai-eval doctor`)
+  1 — any required check fails (so CI can gate on `ai-evals doctor`)
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ def _check_rubrics(cwd: Path, config_path: Path | None) -> tuple[bool, str]:
     """
     resolved = load_resolved(project_root=cwd, config_path=config_path)
     if resolved.rubrics_path is None:
-        return False, "not found — run `ai-eval init`"
+        return False, "not found — run `ai-evals init`"
     try:
         resolved.as_rubrics()
     except Exception as exc:
@@ -104,14 +104,14 @@ def _check_judge_gateway(
     judge = (resolved.data.get("judge") or {}) if isinstance(resolved.data, dict) else {}
     model = judge.get("default")
     if not model:
-        return False, "judge.default not configured (run `ai-eval init`)"
+        return False, "judge.default not configured (run `ai-evals init`)"
     try:
         import asyncio
 
         from ai_eval.judge.gateway import ping
 
         # Short timeout: doctor must stay fast and read-only. A longer reachability
-        # probe belongs to `ai-eval judge --ping`.
+        # probe belongs to `ai-evals judge --ping`.
         ok, detail = asyncio.run(ping(model, timeout=5.0))
         return ok, f"{model}: {detail}"
     except Exception as exc:

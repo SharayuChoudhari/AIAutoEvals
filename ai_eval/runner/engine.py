@@ -110,7 +110,7 @@ async def execute(
     ``complete_fn`` is the async judge transport (fake in tests). ``baseline``
     is the prior run's tasks dict (for delta computation); ``None`` = fresh.
     """
-    cache = JudgeCache(project_root / ".ai-eval", enabled=cache_on)
+    cache = JudgeCache(project_root / ".ai-evals", enabled=cache_on)
     sem = asyncio.Semaphore(parallel)
     tasks_out: dict[str, TaskRecord] = {}
     default_model = judge_override or rubrics.judge.default

@@ -70,7 +70,7 @@ class RunSummary(BaseModel):
 
 
 class RunRecord(BaseModel):
-    """Top-level run record written to ``.ai-eval/runs/<id>/run.json``."""
+    """Top-level run record written to ``.ai-evals/runs/<id>/run.json``."""
 
     model_config = ConfigDict(extra="forbid")
 

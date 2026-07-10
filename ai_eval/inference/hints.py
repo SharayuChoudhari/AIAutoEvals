@@ -1,6 +1,6 @@
 """Load the opt-in hints file and merge hint tasks with AST scan results.
 
-The hints file (``eval/ai-eval.hints.yaml``) is the escape hatch for
+The hints file (``eval/ai-evals.hints.yaml``) is the escape hatch for
 orchestration the AST detectors can't see (Temporal, Prefect, Airflow,
 proprietary state loops) and the lever to split one detected entry point into
 per-intent tasks. Hints are **additive**: when a hint and an AST task share
@@ -20,7 +20,7 @@ from ai_eval.inference.detectors.base import DetectedTask
 
 
 def parse_hints(path: Path) -> HintsFile:
-    """Parse ``ai-eval.hints.yaml`` into a validated :class:`HintsFile`.
+    """Parse ``ai-evals.hints.yaml`` into a validated :class:`HintsFile`.
 
     An absent or empty file yields an empty ``HintsFile`` (no hints). A
     malformed file raises a ``yaml.YAMLError``; a structurally-invalid one
@@ -57,7 +57,7 @@ def _hint_to_detected_task(hint: HintTaskSpec) -> DetectedTask:
         entry=hint.entry,
         inputs=list(hint.inputs),
         outputs=list(hint.outputs),
-        evidence=[f"hint task {hint.name!r} from ai-eval.hints.yaml"],
+        evidence=[f"hint task {hint.name!r} from ai-evals.hints.yaml"],
     )
 
 

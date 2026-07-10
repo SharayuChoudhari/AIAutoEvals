@@ -49,7 +49,7 @@ _DEFAULT_IGNORES: frozenset[str] = frozenset(
         "build",
         "dist",
         "node_modules",
-        ".ai-eval",
+        ".ai-evals",
         ".kilo",
         ".agents",
         ".tox",

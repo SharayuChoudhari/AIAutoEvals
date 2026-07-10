@@ -1,4 +1,4 @@
-"""CLI tests for `ai-eval diff`, `report`, `history`."""
+"""CLI tests for `ai-evals diff`, `report`, `history`."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def _setup_repo(tmp_path: Path, *, score: float = 0.9) -> None:
         }}),
         encoding="utf-8",
     )
-    (tmp_path / ".ai-eval").mkdir(exist_ok=True)
+    (tmp_path / ".ai-evals").mkdir(exist_ok=True)
 
 
 def _run_once(runner, tmp_path, score):
@@ -87,7 +87,7 @@ def fake_judge(monkeypatch: pytest.MonkeyPatch):
 def test_history_list_empty(
     runner: CliRunner, tmp_path: Path, clean_env
 ) -> None:
-    (tmp_path / ".ai-eval").mkdir(exist_ok=True)
+    (tmp_path / ".ai-evals").mkdir(exist_ok=True)
     result = runner.invoke(
         app, ["-C", str(tmp_path), "--format", "json", "history"]
     )
@@ -114,7 +114,7 @@ def test_history_show(
     _setup_repo(tmp_path)
     runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "run"])
     runs = json.loads(
-        (tmp_path / ".ai-eval" / "history.json").read_text()
+        (tmp_path / ".ai-evals" / "history.json").read_text()
     )["runs"]
     rid = runs[-1]["id"]
     result = runner.invoke(
@@ -177,7 +177,7 @@ def test_diff_after_two_runs(
 def test_diff_no_runs_errors(
     runner: CliRunner, tmp_path: Path, clean_env
 ) -> None:
-    (tmp_path / ".ai-eval").mkdir(exist_ok=True)
+    (tmp_path / ".ai-evals").mkdir(exist_ok=True)
     result = runner.invoke(app, ["-C", str(tmp_path), "diff"])
     assert result.exit_code == 2
 
@@ -212,6 +212,6 @@ def test_report_web(
 def test_report_missing_run(
     runner: CliRunner, tmp_path: Path, clean_env
 ) -> None:
-    (tmp_path / ".ai-eval").mkdir(exist_ok=True)
+    (tmp_path / ".ai-evals").mkdir(exist_ok=True)
     result = runner.invoke(app, ["-C", str(tmp_path), "report", "nope"])
     assert result.exit_code == 2

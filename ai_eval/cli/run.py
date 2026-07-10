@@ -1,4 +1,4 @@
-"""`ai-eval run` — execute evaluations against the current code.
+"""`ai-evals run` — execute evaluations against the current code.
 
 Loads resolved config, resolves the golden set, resolves the baseline
 (``last``/``none``/run-id), runs the async engine with the judge gateway, saves
@@ -68,7 +68,7 @@ def run_command(
         typer.echo(
             f"error: golden set not found at {golden_path}", err=True
         )
-        typer.echo("  fix: run `ai-eval bootstrap -- <cmd>` to capture traces", err=True)
+        typer.echo("  fix: run `ai-evals bootstrap -- <cmd>` to capture traces", err=True)
         raise typer.Exit(code=EXIT_USAGE)
     try:
         golden_set = json.loads(golden_path.read_text(encoding="utf-8"))

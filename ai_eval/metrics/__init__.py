@@ -1,4 +1,4 @@
-"""Metric registry for ai-eval rubrics."""
+"""Metric registry for ai-evals rubrics."""
 
 from __future__ import annotations
 

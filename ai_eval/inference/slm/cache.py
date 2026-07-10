@@ -1,7 +1,7 @@
 """Evidence-hash keyed response cache for SLM rubric calls.
 
 Caches the per-task classification result under
-``.ai-eval/rubric_cache/<hash>.json`` keyed by a canonical hash of the evidence
+``.ai-evals/rubric_cache/<hash>.json`` keyed by a canonical hash of the evidence
 (the task's enclosing function source, its imports, and the model id). A cache
 hit short-circuits the SLM call entirely, giving reproducible, free re-runs.
 

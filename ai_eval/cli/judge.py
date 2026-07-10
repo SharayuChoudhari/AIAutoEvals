@@ -1,4 +1,4 @@
-"""`ai-eval judge` — inspect and test the configured judge models.
+"""`ai-evals judge` — inspect and test the configured judge models.
 
 Three read-only modes, all honoring ``--format json``:
 - ``--list`` (default) — show ``judge.default`` / ``regression_check`` /
@@ -77,7 +77,7 @@ def _run_list(
     for i, m in enumerate(fallback_models):
         targets.append((f"fallback[{i}]", m))
     if not targets:
-        typer.echo("error: no judge models configured (run `ai-eval init`)", err=True)
+        typer.echo("error: no judge models configured (run `ai-evals init`)", err=True)
         raise typer.Exit(code=EXIT_GENERAL)
 
     rows = [(role, mdl, *_ping_sync(mdl)) for role, mdl in targets]

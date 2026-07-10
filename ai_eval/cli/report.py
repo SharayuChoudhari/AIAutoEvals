@@ -1,4 +1,4 @@
-"""`ai-eval report` — render a past run as human / json / md / html."""
+"""`ai-evals report` — render a past run as human / json / md / html."""
 
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ def _render_html(record: dict) -> str:
     )
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
-        f"<title>ai-eval run {record.get('id')}</title></head>"
+        f"<title>ai-evals run {record.get('id')}</title></head>"
         f"<body><pre>{body}</pre></body></html>"
     )
 

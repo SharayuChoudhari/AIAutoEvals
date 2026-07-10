@@ -55,7 +55,7 @@ def test_appointment_workflow_hints_fill_graph_gap(
 ) -> None:
     """A hints file declaring the `run` entry adds a second workflow task that
     AST missed. AST keeps its _call_model task; the hint adds `run`."""
-    hints_path = appointment_workflow_repo / "eval" / "ai-eval.hints.yaml"
+    hints_path = appointment_workflow_repo / "eval" / "ai-evals.hints.yaml"
     hints_path.parent.mkdir(parents=True)
     hints_path.write_text(
         yaml.safe_dump({

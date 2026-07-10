@@ -758,7 +758,7 @@ def test_empty_live_slm_falls_back_to_detector_evidence(tmp_path: Path) -> None:
     assert spec.outputs == ["content"]
     assert [m.name for m in spec.metrics] == ["hallucination_rate"]
     # Empty result was not cached (would otherwise poison future runs).
-    assert not list((tmp_path / ".ai-eval" / "rubric_cache").glob("*.json"))
+    assert not list((tmp_path / ".ai-evals" / "rubric_cache").glob("*.json"))
 
 
 def test_stale_empty_cache_is_treated_as_a_miss(tmp_path: Path) -> None:
@@ -807,8 +807,8 @@ def test_stale_empty_cache_is_treated_as_a_miss(tmp_path: Path) -> None:
         enclosing_function=ev.enclosing_function, file_path=ev.file_path,
         model="ollama/test:1b", template_name="classify_task",
     )
-    (tmp_path / ".ai-eval" / "rubric_cache").mkdir(parents=True, exist_ok=True)
-    (tmp_path / ".ai-eval" / "rubric_cache" / f"{key}.json").write_text(
+    (tmp_path / ".ai-evals" / "rubric_cache").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".ai-evals" / "rubric_cache" / f"{key}.json").write_text(
         json.dumps(
             {"type": "chat", "inputs": [], "outputs": [], "metrics": [], "purpose": None}
         ),

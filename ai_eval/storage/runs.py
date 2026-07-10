@@ -1,6 +1,6 @@
 """Run persistence: id generation, save/load run records + traces + judge log.
 
-Layout under ``.ai-eval/runs/<id>/``:
+Layout under ``.ai-evals/runs/<id>/``:
 - ``run.json`` — the :class:`~ai_eval.runner.record.RunRecord`
 - ``traces.ndjson`` — per-example traces (one JSON object per line)
 - ``judge_log.ndjson`` — judge call log (request/response/errors)

@@ -14,7 +14,7 @@ Tests inject a fake ``complete`` via the ``complete_fn`` parameter of
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel
 
@@ -46,14 +46,14 @@ def complete(
         raise _engine_error(
             "the SLM rubric engine requires `litellm` and `instructor`",
             "dependencies are not installed",
-            "pip install 'ai-eval[judge]' or run with --rubric-engine rules",
+            "pip install ai-evals or run with --rubric-engine rules",
         ) from exc
 
     client = instructor.from_litellm(litellm.completion)
     try:
         return client.chat.completions.create(
             model=model,
-            messages=messages,
+            messages=cast(Any, messages),
             response_model=response_model,
             temperature=temperature,
             max_tokens=max_tokens,

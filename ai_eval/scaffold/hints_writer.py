@@ -1,4 +1,4 @@
-"""Write a commented-out ``ai-eval.hints.yaml`` template on first init.
+"""Write a commented-out ``ai-evals.hints.yaml`` template on first init.
 
 The hints file is opt-in and additive; ``init`` only seeds the template when
 the file does not already exist, so user edits are preserved across re-runs
@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 _TEMPLATE = """\
-# ai-eval hints — opt-in detection for orchestration AST can't see.
+# ai-evals hints — opt-in detection for orchestration AST can't see.
 # Uncomment and edit to declare tasks for frameworks the auto-detectors miss
 # (Temporal, Prefect, Airflow, proprietary state loops), or to split one
 # detected entry point into per-intent tasks.

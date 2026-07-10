@@ -1,8 +1,8 @@
-"""`ai-eval analyze` — re-scan and propose a merged rubrics.yaml.
+"""`ai-evals analyze` — re-scan and propose a merged rubrics.yaml.
 
 Default mode is dry-run (no `--write`). When `--write` is passed:
   - Creates a `.bak` copy of the current rubrics.yaml before replacing it.
-  - Re-emits the ai-eval file header comment that `init` adds.
+  - Re-emits the ai-evals file header comment that `init` adds.
   - Skips writing when the merged result is identical to what is already on disk.
   - The `--merge-strategy` flag is now required to be explicit when conflicts
     exist (exits 1 otherwise), per plan §1.2.
@@ -171,7 +171,7 @@ def analyze_command(
             "no rubrics.yaml to analyze",
             what=f"{paths.rubrics_yaml} does not exist",
             why="analyze re-syncs an existing rubrics.yaml; nothing to sync yet",
-            fix="run `ai-eval init` first",
+            fix="run `ai-evals init` first",
         )
         raise typer.Exit(code=EXIT_USAGE)
 
@@ -189,7 +189,7 @@ def analyze_command(
     existing = yaml.safe_load(raw_text) or {}
 
     scan = scan_repo(opts.cwd)
-    # Merge opt-in hint tasks (eval/ai-eval.hints.yaml) into the AST scan
+    # Merge opt-in hint tasks (eval/ai-evals.hints.yaml) into the AST scan
     # before the rubric engine runs, so both the rules and SLM/hybrid engines
     # see them. AST tasks win on (file_path, entry) collision; hints fill gaps.
     try:
@@ -198,7 +198,7 @@ def analyze_command(
         _err(
             "failed to load hints file",
             what=str(exc).splitlines()[0] if str(exc) else "hints file error",
-            why="eval/ai-eval.hints.yaml is malformed or violates the schema",
+            why="eval/ai-evals.hints.yaml is malformed or violates the schema",
             fix="fix the hints file, or remove it to skip hints",
         )
         raise typer.Exit(code=EXIT_GENERAL) from exc

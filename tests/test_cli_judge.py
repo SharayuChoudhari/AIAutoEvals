@@ -1,4 +1,4 @@
-"""CLI tests for `ai-eval judge` with a fake transport.
+"""CLI tests for `ai-evals judge` with a fake transport.
 
 The CLI calls the gateway's async ``ping``/``score`` which default to the real
 instructor client. We patch ``ai_eval.judge.gateway._default_complete`` with a

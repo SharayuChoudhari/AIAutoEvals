@@ -195,6 +195,71 @@ def _deterministic_precision(query: Any, retrieved: list[Any]) -> float:
     return hits / len(retrieved)
 
 
+def _task_completion(
+    task_spec: Any, example: dict[str, Any], output: Any, *, tier: str = "complex"
+) -> list[dict[str, str]]:
+    task_type, purpose = _task_fields(task_spec)
+    inp = _input_payload(example)
+    expected = _expected_payload(example)
+    common = dict(
+        metric_name="task_completion",
+        metric_description=(
+            "Whether the end-to-end task (e.g. booking, agent workflow) "
+            "completed successfully against the expected outcome. Score 1.0 "
+            "for full completion, partial credit for incomplete but plausible "
+            "progress."
+        ),
+        scored_dimension="task_completion",
+        task_type=task_type,
+        task_purpose=purpose,
+        input=inp,
+        output=output,
+        expected=expected,
+    )
+    if tier == "basic":
+        return build_checklist(
+            checks=(
+                "output reaches the expected terminal state",
+                "no required step is skipped or aborted",
+                "side effects (booking, confirmation) match expected",
+            ),
+            **common,
+        )
+    return build_cot(**common)
+
+
+def _slot_filling_accuracy(
+    task_spec: Any, example: dict[str, Any], output: Any, *, tier: str = "complex"
+) -> list[dict[str, str]]:
+    task_type, purpose = _task_fields(task_spec)
+    inp = _input_payload(example)
+    expected = _expected_payload(example)
+    common = dict(
+        metric_name="slot_filling_accuracy",
+        metric_description=(
+            "Accuracy of slots/arguments filled for booking or workflow tasks "
+            "vs. the expected slots. Score 1.0 for exact match, partial credit "
+            "per correctly filled slot."
+        ),
+        scored_dimension="slot_filling_accuracy",
+        task_type=task_type,
+        task_purpose=purpose,
+        input=inp,
+        output=output,
+        expected=expected,
+    )
+    if tier == "basic":
+        return build_checklist(
+            checks=(
+                "all required slots are present in the output",
+                "slot values match the expected values",
+                "no extra or invalid slots filled",
+            ),
+            **common,
+        )
+    return build_cot(**common)
+
+
 BUILTIN_JUDGE_METRICS: tuple[JudgeMetric, ...] = (
     JudgeMetric(
         name="argument_accuracy",
@@ -223,6 +288,20 @@ BUILTIN_JUDGE_METRICS: tuple[JudgeMetric, ...] = (
         applicable_task_types=("rag", "summarization"),
         scored_dimension="faithfulness",
         prompt_builder=_faithfulness,
+    ),
+    JudgeMetric(
+        name="task_completion",
+        description="Whether the end-to-end task (e.g. booking, agent) completed successfully.",
+        applicable_task_types=("booking", "workflow", "agent"),
+        scored_dimension="task_completion",
+        prompt_builder=_task_completion,
+    ),
+    JudgeMetric(
+        name="slot_filling_accuracy",
+        description="Accuracy of slots/arguments filled for booking or workflow tasks.",
+        applicable_task_types=("booking", "workflow"),
+        scored_dimension="slot_filling_accuracy",
+        prompt_builder=_slot_filling_accuracy,
     ),
 )
 

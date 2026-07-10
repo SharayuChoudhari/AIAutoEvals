@@ -1,7 +1,7 @@
 """Typer root app + global flags + entry point.
 
 Design contract:
-- `ai-eval <command> [flags]`, max 2 levels of nesting.
+- `ai-evals <command> [flags]`, max 2 levels of nesting.
 - Global flags resolved here and stashed in a `GlobalOptions` object on the Typer
   context so subcommands can read them.
 - Exit codes:
@@ -76,8 +76,8 @@ def _detect_ci() -> bool:
 
 
 app = typer.Typer(
-    name="ai-eval",
-    help="ai-eval — zero-config AI evaluation for your repo.",
+    name="ai-evals",
+    help="ai-evals — zero-config AI evaluation for your repo.",
     add_completion=False,
     no_args_is_help=True,
     context_settings={"help_option_names": ["-h", "--help"]},
@@ -88,7 +88,7 @@ app = typer.Typer(
 def _version_callback(value: bool) -> None:
     if value:
         py = f"python {sys.version_info.major}.{sys.version_info.minor}"
-        typer.echo(f"ai-eval {__version__} ({py})")
+        typer.echo(f"ai-evals {__version__} ({py})")
         raise typer.Exit(code=EXIT_OK)
 
 

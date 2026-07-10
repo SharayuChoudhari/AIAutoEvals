@@ -1,4 +1,4 @@
-"""`ai-eval diff` — show regression diff vs. a baseline run.
+"""`ai-evals diff` — show regression diff vs. a baseline run.
 
 Loads current + baseline runs, computes per-metric deltas, and renders a
 metric-level Δ table. With ``--explain`` and a configured regression judge,
@@ -42,7 +42,7 @@ def diff_command(
 
     current_id = last_run_id(paths.state_dir)
     if current_id is None:
-        typer.echo("error: no runs found (run `ai-eval run` first)", err=True)
+        typer.echo("error: no runs found (run `ai-evals run` first)", err=True)
         raise typer.Exit(code=EXIT_USAGE)
     try:
         current = load_run_raw(paths.state_dir, current_id)

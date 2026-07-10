@@ -22,13 +22,13 @@ class ProjectPaths:
 
     @property
     def hints_yaml(self) -> Path:
-        """Opt-in detection hints file (``eval/ai-eval.hints.yaml``).
+        """Opt-in detection hints file (``eval/ai-evals.hints.yaml``).
 
         Absence means "no hints". Sibling of ``rubrics.yaml`` so the eval
         config (metrics/judges) stays separate from the detection
         declaration.
         """
-        return self.eval_dir / "ai-eval.hints.yaml"
+        return self.eval_dir / "ai-evals.hints.yaml"
 
     @property
     def golden_set_json(self) -> Path:
@@ -55,7 +55,7 @@ class ProjectPaths:
         return self.state_dir / "config.lock"
 
     def ensure_state(self) -> None:
-        """Create the .ai-eval/ tree if missing."""
+        """Create the .ai-evals/ tree if missing."""
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         (self.cache_dir / "judge").mkdir(parents=True, exist_ok=True)

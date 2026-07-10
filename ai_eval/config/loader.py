@@ -4,11 +4,11 @@ Resolution order (highest wins):
   1. CLI flag (passed in as `cli_overrides` dict)
   2. Env var `AI_EVAL_<UPPER_SNAKE>`
   3. eval/rubrics.yaml (in the project)
-  4. ~/.config/ai-eval/config.yaml (user-global)
+  4. ~/.config/ai-evals/config.yaml (user-global)
   5. Built-in defaults from `ai_eval.config.defaults`
 
 `load_resolved()` returns the merged view annotated with source per key, which
-`ai-eval config --print` renders.
+`ai-evals config --print` renders.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ def user_config_path() -> Path:
     """Location of the optional user-global config."""
     xdg = os.environ.get("XDG_CONFIG_HOME")
     base = Path(xdg) if xdg else Path.home() / ".config"
-    return base / "ai-eval" / "config.yaml"
+    return base / "ai-evals" / "config.yaml"
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:

@@ -3,13 +3,14 @@ requires = ["hatchling>=1.24"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ai-eval"
+name = "ai-evals"
 version = "0.1.0"
 description = "Zero-config, repo-aware AI evaluation."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
-authors = [{ name = "ai-eval contributors" }]
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "ai-evals contributors" }]
 keywords = ["llm", "evaluation", "evals", "ai", "testing"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -49,7 +50,7 @@ dev = [
 ]
 
 [project.scripts]
-ai-eval = "ai_eval.cli.app:main"
+ai-evals = "ai_eval.cli.app:main"
 
 # Note: the `ai_eval.detectors` and `ai_eval.metrics` entry-point groups are
 # reserved for third-party plugins. Built-in detectors are loaded directly by
@@ -67,6 +68,18 @@ ai-eval = "ai_eval.cli.app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["ai_eval"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  ".kilo",
+  ".venv",
+  "venv",
+  ".mypy_cache",
+  ".ruff_cache",
+  ".pytest_cache",
+  "dist",
+  "tests",
+]
 
 [tool.ruff]
 line-length = 100
