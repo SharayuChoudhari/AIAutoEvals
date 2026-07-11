@@ -8,7 +8,7 @@ Zero-config, repo-aware, model-agnostic AI evaluation.
 ## Install
 
 ```bash
-pipx install ai-evals         # recommended
+pipx install dot-ai-evals      # recommended
 # or, for development:
 pip install -e ".[dev]"
 ```
