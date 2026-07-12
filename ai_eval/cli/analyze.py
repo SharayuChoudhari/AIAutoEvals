@@ -214,6 +214,7 @@ def analyze_command(
             caps=make_caps(
                 rubric_max_snippet_chars, rubric_max_tasks, rubric_budget_tokens
             ),
+            hints_path=paths.hints_yaml,
         )
     except typer.Exit:
         raise

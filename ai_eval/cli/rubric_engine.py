@@ -15,6 +15,7 @@ import typer
 
 from ai_eval.config.schema import RubricsConfig
 from ai_eval.inference.ast_scan import ScanResult
+from ai_eval.inference.hints import parse_hints
 from ai_eval.inference.slm.builder import BuildStats, EvidenceCaps, build_rubrics_slm
 from ai_eval.inference.slm.cache import ResponseCache
 from ai_eval.inference.synthesize import build_rubrics
@@ -47,6 +48,25 @@ def make_caps(
     )
 
 
+def _hints_overrides(
+    hints_path: Path | None,
+) -> tuple[list[str], set[tuple[str, str | None]]]:
+    """Extract ``judge_code`` globs and ``force_task`` keys from the hints file.
+
+    Returns ``(judge_code_globs, force_task_keys)``. ``force_task_keys`` are
+    ``(file_path, entry)`` pairs declared with ``force_task: true`` — these
+    immunize a site against call-graph demotion and judge-exclusion (plan D1).
+    """
+    if hints_path is None:
+        return [], set()
+    hints = parse_hints(hints_path)
+    force_keys: set[tuple[str, str | None]] = set()
+    for t in hints.tasks:
+        if t.force_task:
+            force_keys.add((t.file_path, t.entry))
+    return list(hints.judge_code), force_keys
+
+
 def build_with_engine(
     *,
     engine: str,
@@ -58,6 +78,7 @@ def build_with_engine(
     caps: EvidenceCaps,
     cache_enabled: bool = True,
     complete_fn=None,
+    hints_path: Path | None = None,
 ) -> EngineResult:
     """Run the selected rubric engine and return a ``RubricsConfig``.
 
@@ -69,10 +90,19 @@ def build_with_engine(
       hint), then hand that evidence + the rule type hint to the SLM for
       classification. The SLM still owns the final type but sees the rule's
       opinion as prior evidence.
+
+    ``hints_path`` is the optional ``ai-evals.hints.yaml`` path; its
+    ``judge_code``/``force_task`` overrides feed the task-selection layer.
     """
+    judge_code_globs, force_task_keys = _hints_overrides(hints_path)
     if engine == "rules":
         rubrics = build_rubrics(
-            scan, judge_default=judge_default, judge_regression=judge_regression
+            scan,
+            judge_default=judge_default,
+            judge_regression=judge_regression,
+            project_root=project_root,
+            judge_code_globs=judge_code_globs,
+            force_task_keys=force_task_keys,
         )
         rubrics.rubric_engine = "rules"
         return EngineResult(rubrics=rubrics)
@@ -84,7 +114,12 @@ def build_with_engine(
     rule_hints: dict[str, str] | None = None
     if engine == "hybrid":
         rule_rubrics = build_rubrics(
-            scan, judge_default=judge_default, judge_regression=judge_regression
+            scan,
+            judge_default=judge_default,
+            judge_regression=judge_regression,
+            project_root=project_root,
+            judge_code_globs=judge_code_globs,
+            force_task_keys=force_task_keys,
         )
         rule_hints = {name: spec.type for name, spec in rule_rubrics.tasks.items()}
 

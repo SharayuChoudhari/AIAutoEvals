@@ -122,6 +122,10 @@ class HintTaskSpec(BaseModel):
     type: TaskType
     inputs: list[str] = Field(default_factory=list)
     outputs: list[str] = Field(default_factory=list)
+    #: When ``true`` the task is immune to call-graph demotion and
+    #: judge-exclusion (plan D1 escape hatch: ``force_task: true`` to
+    #: force-include a site the heuristics would drop).
+    force_task: bool = False
 
     @field_validator("name")
     @classmethod
@@ -144,6 +148,10 @@ class HintsFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tasks: list[HintTaskSpec] = Field(default_factory=list)
+    #: Repo-relative path globs whose detected sites are force-excluded as
+    #: judge code (plan D1 escape hatch: ``judge_code: [paths]``). Matches
+    #: against ``DetectedTask.file_path`` (POSIX glob).
+    judge_code: list[str] = Field(default_factory=list)
 
 
 class TaskSpec(BaseModel):

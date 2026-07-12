@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from ai_eval.config.defaults import (
     DEFAULT_JUDGE,
@@ -19,6 +20,7 @@ from ai_eval.config.schema import (
 )
 from ai_eval.inference.ast_scan import ScanResult
 from ai_eval.inference.detectors.base import DetectedTask
+from ai_eval.inference.task_selection import select_tasks
 
 # Default metric set per task type. Matches design §2.6 (Phase 4 metrics).
 _DEFAULT_METRICS: dict[str, list[MetricSpec]] = {
@@ -142,8 +144,24 @@ def build_rubrics(
     *,
     judge_default: str | None = None,
     judge_regression: str | None = None,
+    project_root: Path | None = None,
+    judge_code_globs: list[str] | None = None,
+    force_task_keys: set[tuple[str, str | None]] | None = None,
 ) -> RubricsConfig:
-    """Return a `RubricsConfig` synthesized from the scan result."""
+    """Return a `RubricsConfig` synthesized from the scan result.
+
+    When ``project_root`` is provided, the scan is first filtered through task
+    selection (call-graph demotion + judge-exclusion, plan D1/R2). When it is
+    ``None`` (e.g. unit tests constructing a ``ScanResult`` directly with no
+    files on disk), tasks are used as-is — backward compatible.
+    """
+    if project_root is not None:
+        scan = select_tasks(
+            project_root,
+            scan,
+            judge_code_globs=judge_code_globs,
+            force_task_keys=force_task_keys,
+        )
     judge = JudgeConfig(
         default=judge_default or DEFAULT_JUDGE,
         regression_check=judge_regression or DEFAULT_REGRESSION_JUDGE,
