@@ -87,3 +87,61 @@ def test_workflow_plus_rag_classifies_to_rag_and_tools() -> None:
     ])
     rubrics = build_rubrics(scan)
     assert rubrics.project_type == "rag_and_tools"
+
+
+def test_dotted_entry_produces_snake_case_key_but_dotted_entry_field() -> None:
+    """A task with a dotted ``Class.method`` entry (from class-body descent)
+    must produce a schema-valid snake_case rubrics key while keeping the
+    resolvable dotted form in ``TaskSpec.entry``. The ``RubricsConfig`` key
+    validator rejects names containing ``.``."""
+    scan = _scan([
+        DetectedTask(
+            name="ChatMessageService.process_query",
+            framework="langgraph",
+            type="rag",
+            file_path="services/chat_messages.py",
+            entry="ChatMessageService.process_query",
+            inputs=["query"],
+            outputs=["documents"],
+        ),
+    ])
+    rubrics = build_rubrics(scan)
+    assert set(rubrics.tasks) == {"chat_message_service_process_query"}
+    spec = rubrics.tasks["chat_message_service_process_query"]
+    assert spec.entry == "ChatMessageService.process_query"
+
+
+def test_dotted_private_method_entry_strips_leading_underscore_in_key() -> None:
+    """``Class._private`` entries collapse to ``class_private`` keys (the
+    leading underscore is dropped so the key doesn't begin with ``_``)."""
+    scan = _scan([
+        DetectedTask(
+            name="ConversationWorkflowService._call_model",
+            framework="openai",
+            type="workflow",
+            file_path="svc.py",
+            entry="ConversationWorkflowService._call_model",
+        ),
+    ])
+    rubrics = build_rubrics(scan)
+    assert set(rubrics.tasks) == {"conversation_workflow_service_call_model"}
+    assert rubrics.tasks["conversation_workflow_service_call_model"].entry == (
+        "ConversationWorkflowService._call_model"
+    )
+
+
+def test_bare_module_entry_keeps_its_name_as_key() -> None:
+    """Module-level functions (no dot in entry) keep their bare name as the
+    rubrics key — no transformation applied."""
+    scan = _scan([
+        DetectedTask(
+            name="summarize",
+            framework="openai",
+            type="chat",
+            file_path="summarize.py",
+            entry="summarize",
+        ),
+    ])
+    rubrics = build_rubrics(scan)
+    assert set(rubrics.tasks) == {"summarize"}
+    assert rubrics.tasks["summarize"].entry == "summarize"

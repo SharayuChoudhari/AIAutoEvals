@@ -180,10 +180,10 @@ def test_responses_detector_self_client_receiver(tmp_path: Path) -> None:
     where the receiver is an attribute, not a bare Name. attr_chain yields a
     leading Name (``self``), so the trailing two-name check still fires.
 
-    Note: ``_call_model`` is a *method* inside a class. ``find_callable_defs``
-    returns only top-level defs (documented behavior shared by all detectors),
-    so ``entry`` is ``None`` here — the name falls back to ``<stem>_workflow``.
-    This matches how the existing tools/chat detectors behave on methods."""
+    Note: ``_call_model`` is a *method* inside a class. After the class-body
+    descent change in ``find_callable_defs``, methods resolve to dotted
+    ``Class.method`` entries, so ``entry`` is ``Svc._call_model`` and the task
+    name uses that dotted form (no ``<stem>_workflow`` fallback)."""
     path = tmp_path / "svc.py"
     source = (
         "from openai import OpenAI\n"
@@ -204,8 +204,8 @@ def test_responses_detector_self_client_receiver(tmp_path: Path) -> None:
     )
     assert len(tasks) == 1
     assert tasks[0].type == "workflow"
-    assert tasks[0].name == "svc_workflow"
-    assert tasks[0].entry is None  # method, not a top-level def
+    assert tasks[0].name == "Svc._call_model"
+    assert tasks[0].entry == "Svc._call_model"  # dotted method entry
 
 
 def test_responses_detector_does_not_fire_without_openai_import(tmp_path: Path) -> None:

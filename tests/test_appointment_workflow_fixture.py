@@ -29,24 +29,22 @@ def test_appointment_workflow_responses_auto_detects(
     _call_model. The LangGraph graph invoke (in `run`) is NOT detected
     because construction lives in a different def — the false-positive guard.
 
-    Note: ``_call_model`` is a method inside a class, so ``find_callable_defs``
-    (top-level only) returns ``entry=None`` for it — the name falls back to
-    ``conversation_workflow_service_workflow``. This is the documented detector
-    behavior shared across all detectors; the task still fires with the
-    correct ``type=workflow``."""
+    After the class-body descent change, ``_call_model`` resolves to the
+    dotted entry ``ConversationWorkflowService._call_model`` (no longer
+    ``None``); the task name mirrors that dotted entry."""
     result = scan_repo(appointment_workflow_repo)
     types = {t.type for t in result.tasks}
     assert "workflow" in types
-    # The Responses-driven task on _call_model is auto-detected (method, so
-    # entry=None, name falls back to stem_workflow).
+    # The Responses-driven task on _call_model is auto-detected as a dotted
+    # method entry (Class.method form from find_callable_defs).
     responses_wf = [
         t for t in result.tasks
         if t.type == "workflow" and t.framework == "openai"
     ]
     assert len(responses_wf) == 1
-    assert responses_wf[0].entry is None  # method, not top-level def
+    assert responses_wf[0].entry == "ConversationWorkflowService._call_model"
     # The graph.invoke in run() is NOT auto-detected (no construction in same def).
-    run_tasks = [t for t in result.tasks if t.entry == "run"]
+    run_tasks = [t for t in result.tasks if t.entry == "ConversationWorkflowService.run"]
     assert run_tasks == []
 
 
@@ -74,19 +72,29 @@ def test_appointment_workflow_hints_fill_graph_gap(
     )
     scan = scan_repo(appointment_workflow_repo)
     merged = merge_hints(scan, hints_path)
-    # The AST Responses task fires on _call_model (a method → entry None),
-    # and the hint adds the `run` entry AST missed.
-    ast_tasks = [t for t in merged.tasks if t.framework == "openai"]
-    assert len(ast_tasks) == 1
-    assert ast_tasks[0].type == "workflow"
+    # After class-body descent, AST detects two dotted method entries:
+    #   - openai Responses on _call_model (the LLM call)
+    #   - langgraph on _build_graph (the graph construction/compile site)
+    # The hint adds the `run` entry (the graph.invoke) that AST's
+    # construction-in-same-def guard intentionally skips.
+    openai_tasks = [t for t in merged.tasks if t.framework == "openai"]
+    assert len(openai_tasks) == 1
+    assert openai_tasks[0].type == "workflow"
+    assert openai_tasks[0].entry == "ConversationWorkflowService._call_model"
+    langgraph_tasks = [t for t in merged.tasks if t.framework == "langgraph"]
+    assert len(langgraph_tasks) == 1
+    assert langgraph_tasks[0].entry == "ConversationWorkflowService._build_graph"
     hint_tasks = [t for t in merged.tasks if t.framework == "hint"]
     assert len(hint_tasks) == 1
     assert hint_tasks[0].name == "conversation_workflow"
     assert hint_tasks[0].entry == "run"
-    # No collision: the AST task has entry=None (method) while the hint has
-    # entry="run", so both survive — they target different entry points.
+    # Three distinct entry points, no collisions.
     entries = {t.entry for t in merged.tasks}
-    assert entries == {None, "run"}
+    assert entries == {
+        "ConversationWorkflowService._call_model",
+        "ConversationWorkflowService._build_graph",
+        "run",
+    }
 
     rubrics = build_rubrics(merged)
     assert rubrics.project_type == "workflow"

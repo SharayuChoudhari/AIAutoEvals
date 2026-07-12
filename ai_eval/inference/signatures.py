@@ -88,12 +88,28 @@ def iter_calls(tree: ast.AST):
 
 
 def find_callable_defs(tree: ast.AST) -> list[ast.FunctionDef | ast.AsyncFunctionDef]:
-    """Return all top-level `def` / `async def` in a module (no nested defs)."""
+    """Return module-level `def`/`async def` plus direct methods of top-level
+    classes (``ClassDef`` bodies). Nested defs inside methods (closures) are
+    intentionally excluded so they never produce false enclosing matches.
+
+    Each returned node carries its qualified name in ``node.name``: a bare
+    function name for module-level defs, or ``Class.method`` for methods. The
+    caller can recover the unqualified name via ``name.rsplit(".", 1)[-1]``.
+    """
     defs: list[ast.FunctionDef | ast.AsyncFunctionDef] = []
     if isinstance(tree, ast.Module):
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 defs.append(node)
+            elif isinstance(node, ast.ClassDef):
+                for child in node.body:
+                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        # Rewrite the node's name to the dotted ``Class.method``
+                        # form. This is the contract every detector relies on:
+                        # ``enclosing_def_name`` returns this name verbatim and
+                        # detectors emit it as ``DetectedTask.entry``.
+                        child.name = f"{node.name}.{child.name}"
+                        defs.append(child)
     return defs
 
 
@@ -101,18 +117,31 @@ def enclosing_def_name(
     call: ast.AST,
     defs: list[ast.FunctionDef | ast.AsyncFunctionDef],
 ) -> str | None:
-    """Find the function def that lexically contains `call`.
+    """Find the function/method def that lexically contains `call`.
 
-    Pragmatic: matches by line range. Good enough for repo-scan heuristics.
+    Pragmatic: matches by line range. For methods the returned name is the
+    dotted ``Class.method`` form produced by :func:`find_callable_defs`.
+    Good enough for repo-scan heuristics.
+
+    When a call lies inside multiple defs (a method body containing a nested
+    closure), the **smallest enclosing** def wins so closures like LangGraph's
+    ``retrieve_node``/``generate_node`` never shadow their host method.
     """
     line = getattr(call, "lineno", None)
     if line is None:
         return None
+    best: ast.FunctionDef | ast.AsyncFunctionDef | None = None
+    best_span = -1
     for fn in defs:
         end = getattr(fn, "end_lineno", None) or fn.lineno
         if fn.lineno <= line <= end:
-            return fn.name
-    return None
+            span = end - fn.lineno
+            # Prefer the tightest enclosing def (smallest line span). This
+            # picks the method over any nested closure sharing the same range.
+            if best is None or span < best_span:
+                best = fn
+                best_span = span
+    return best.name if best is not None else None
 
 
 # ---------------------------------------------------------------------------

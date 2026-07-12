@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from ai_eval.config.defaults import (
     DEFAULT_JUDGE,
     DEFAULT_REGRESSION_JUDGE,
@@ -97,6 +99,44 @@ def _unique_name(name: str, used: set[str]) -> str:
     return f"{name}_{counter}"
 
 
+_CAMEL_BOUNDARY = re.compile(r"(?<!^)(?=[A-Z])")
+
+
+def _camel_to_snake(name: str) -> str:
+    """``ChatMessageService`` → ``chat_message_service``.
+
+    Inserts an underscore before each uppercase letter (except at the start)
+    and lowercases. Handles consecutive capitals by only breaking before a
+    capital that follows a lowercase/digit boundary — good enough for
+    Python class names (``OpenAI`` → ``open_ai``, ``HTTPClient`` →
+    ``http_client``).
+    """
+    return _CAMEL_BOUNDARY.sub("_", name).lower()
+
+
+def _rubric_key_name(task: DetectedTask) -> str:
+    """Derive a snake_case-alphanumeric rubrics key from a detected task.
+
+    ``DetectedTask.name`` may be a dotted ``Class.method`` entry (post
+    class-body descent) which is correct for ``TaskSpec.entry`` but illegal as
+    a rubrics dict key (validated snake_case alphanumeric by
+    ``RubricsConfig``). Collapse ``Class.method`` → ``class_method`` so the key
+    is schema-valid while ``entry`` keeps the resolvable dotted form. Bare
+    module-level names pass through unchanged.
+    """
+    name = task.name
+    if task.entry and "." in task.entry:
+        # ``ConversationWorkflowService._call_model`` →
+        # ``conversation_workflow_service_call_model``. CamelCase class names
+        # split to snake_case; the leading underscore of private methods is
+        # dropped so the key never begins with ``_``.
+        cls, _, method = task.entry.rpartition(".")
+        cls_part = _camel_to_snake(cls.replace(".", "_"))
+        method_part = method.lstrip("_")
+        name = f"{cls_part}_{method_part}" if method_part else cls_part
+    return name
+
+
 def build_rubrics(
     scan: ScanResult,
     *,
@@ -111,7 +151,7 @@ def build_rubrics(
     used_names: set[str] = set()
     task_specs: dict[str, TaskSpec] = {}
     for task in scan.tasks:
-        name = _unique_name(task.name, used_names)
+        name = _unique_name(_rubric_key_name(task), used_names)
         used_names.add(name)
         # If the project-level RAG recovery (``_looks_like_rag``) promotes this
         # task's shape to rag, keep per-task metrics consistent with the
