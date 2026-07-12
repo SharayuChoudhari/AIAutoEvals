@@ -88,38 +88,69 @@ def _wrap_entry(spec):
     import importlib
     mod_path = spec.get("file_path")
     entry = spec.get("entry") or "main"
-    name = spec.get("name") or entry
+    task_name = spec.get("name") or entry
     if not mod_path:
         return
     try:
         from ai_eval.bootstrap.tracer import enter_task, exit_task
     except Exception:
         return
+    # Dotted entry support (D2/D3): ``Class.method`` resolves to the method on
+    # the class and rebinds on the class (so instances pick up the wrapper).
+    # A bare ``fn`` rebinds on the module as before.
+    dotted = "." in entry and entry.rsplit(".", 1)[0]
+    cls_name, method_name = (entry.rsplit(".", 1) if dotted else (None, entry))
     # Defer the actual import until the user imports their module; we patch
     # builtins.__import__ to wrap the entry symbol after the target module
     # loads. This is best-effort: if the user never imports the module, no
     # top-level task is recorded (framework calls still land in __main__).
+    # NOTE: the import-hook parameter is ``name`` (the module being imported);
+    # the spec's task name is ``task_name`` so the wrapper closure captures the
+    # correct label (the old code shadowed ``name`` and recorded the module
+    # name instead of the task name).
     import builtins
+    import inspect
     _orig_import = builtins.__import__
 
     def _import(name, globals=None, locals=None, fromlist=(), level=0):
         mod = _orig_import(name, globals, locals, fromlist, level)
         try:
             target_mod = mod
-            # Resolve submodule path: spec.file_path may be "src/foo.py"
             file_path = mod_path
             if hasattr(mod, "__file__") and mod.__file__ and file_path in mod.__file__:
-                fn = getattr(target_mod, entry, None)
+                # Resolve the callable: dotted ``Class.method`` or bare ``fn``.
+                if cls_name is not None:
+                    owner = getattr(target_mod, cls_name, None)
+                    fn = getattr(owner, method_name, None) if owner is not None else None
+                    rebind_target = owner  # setattr on the class
+                    rebind_attr = method_name
+                else:
+                    fn = getattr(target_mod, method_name, None)
+                    rebind_target = target_mod  # setattr on the module
+                    rebind_attr = method_name
                 if callable(fn) and not getattr(fn, "_ai_eval_wrapped", False):
-                    def _wrapped(*a, _fn=fn, _name=name, **kw):
+                    is_async = inspect.iscoroutinefunction(fn)
+
+                    def _wrapped(*a, _fn=fn, _tn=task_name, **kw):
                         from ai_eval.bootstrap.tracer import enter_task, exit_task
-                        enter_task(_name, {{"args": list(a), "kwargs": kw}})
+                        enter_task(_tn, {{"args": list(a), "kwargs": kw}})
                         try:
                             return _fn(*a, **kw)
                         finally:
                             exit_task()
+
+                    async def _wrapped_async(*a, _fn=fn, _tn=task_name, **kw):
+                        from ai_eval.bootstrap.tracer import enter_task, exit_task
+                        enter_task(_tn, {{"args": list(a), "kwargs": kw}})
+                        try:
+                            return await _fn(*a, **kw)
+                        finally:
+                            exit_task()
+
                     _wrapped._ai_eval_wrapped = True
-                    setattr(target_mod, entry, _wrapped)
+                    _wrapped_async._ai_eval_wrapped = True
+                    setattr(rebind_target, rebind_attr,
+                            _wrapped_async if is_async else _wrapped)
         except Exception:
             pass
         return mod
