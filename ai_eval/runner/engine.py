@@ -46,11 +46,82 @@ def config_hash(rubrics: RubricsConfig) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
+def _fake_call_args(sig) -> tuple[tuple, dict]:
+    """Build plausible positional + keyword args for a callable from its
+    inspect.Signature: primitives default to ``""``/``0``/``0.0``/``False``,
+    everything else defaults to ``None``. Used to construct task-class instances
+    for dotted ``Class.method`` entries (pure-LLM path; IO-coupled tasks get
+    the harness monkey-patches installed first).
+    """
+    import inspect
+
+    args: list = []
+    kwargs: dict = {}
+    for param in sig.parameters.values():
+        if param.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
+            continue
+        if param.default is not inspect.Parameter.empty:
+            # Has a real default — let it apply.
+            continue
+        # No default: fabricate a primitive placeholder.
+        ann = param.annotation
+        if ann is int:
+            args.append(0)
+        elif ann is float:
+            args.append(0.0)
+        elif ann is bool:
+            args.append(False)
+        elif ann is str:
+            args.append("")
+        else:
+            args.append(None)
+    return tuple(args), kwargs
+
+
+def _load_harness(task_name: str, cwd: Path) -> bool:
+    """Import and install the stub harness for an IO-coupled task (D5/D7).
+
+    Looks for ``eval/_harness_<safe_task_name>.py`` and calls its ``install()``
+    so the task's ``self.<dao>.<method>()`` reads return canned fixtures. Returns
+    True if a harness was installed, False if none exists (caller decides whether
+    to skip). Safe to call repeatedly: harness install is idempotent.
+    """
+    import re
+
+    safe = re.sub(r"[^0-9a-zA-Z_]", "_", task_name)
+    harness_path = (cwd / "eval" / f"_harness_{safe}.py")
+    if not harness_path.is_file():
+        return False
+    mod_name = f"_ai_eval_harness_{safe}"
+    if mod_name in sys.modules:
+        # Already installed earlier in this process.
+        return True
+    spec = importlib.util.spec_from_file_location(mod_name, harness_path)
+    if spec is None or spec.loader is None:
+        return False
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[mod_name] = mod
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    install = getattr(mod, "install", None)
+    if callable(install):
+        install()
+    return True
+
+
 def _import_entry(task_spec: TaskSpec, cwd: Path):
     """Import ``task_spec.file_path`` and resolve its ``entry`` symbol.
 
+    For dotted ``Class.method`` entries (D2/D7): constructs an instance of the
+    class with auto-faked constructor args (primitives / None-defaulted) so the
+    method can be called with a ``self``. For IO-coupled tasks the harness
+    monkey-patches are installed first (``eval/_harness_<task>.py``) so the
+    instance's DAO/session reads return canned fixtures.
+
     Inserts ``cwd`` and the file's parent onto ``sys.path`` first. Returns the
-    callable, or raises (import/call errors are caught by the caller).
+    callable (a bound method for dotted entries), or raises.
     """
     file_path = Path(task_spec.file_path)
     if not file_path.is_absolute():
@@ -60,13 +131,49 @@ def _import_entry(task_spec: TaskSpec, cwd: Path):
     for p in (str(cwd), str(file_path.parent)):
         if p not in sys.path:
             sys.path.insert(0, p)
-    spec = importlib.util.spec_from_file_location(module_name, file_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load module from {file_path}")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = mod
-    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    # Dotted entries may have a harness that loaded + patched the target
+    # module under a different name; reuse that patched module so the
+    # monkey-patches survive. Bare ``fn`` entries always load fresh (fast path:
+    # no sys.modules scan).
     entry = task_spec.entry or "main"
+    mod = None
+    if "." in entry:
+        target = str(file_path)
+        for existing in list(sys.modules.values()):
+            ef = getattr(existing, "__file__", None)
+            if ef and str(Path(ef).resolve()) == target:
+                mod = existing
+                break
+    if mod is None:
+        spec = importlib.util.spec_from_file_location(module_name, file_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot load module from {file_path}")
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = mod
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    # Dotted ``Class.method``: resolve the class, construct an instance with
+    # faked args, return the bound method. Bare ``fn``: return the function.
+    if "." in entry:
+        cls_name, _, method_name = entry.rpartition(".")
+        cls = getattr(mod, cls_name, None)
+        if cls is None:
+            raise AttributeError(f"class {cls_name!r} not found in {file_path}")
+        import inspect
+
+        try:
+            sig = inspect.signature(cls.__init__)
+            # Drop 'self' from the fake-args construction.
+            args, kwargs = _fake_call_args(sig)
+            instance = cls(*args, **kwargs)
+        except TypeError:
+            # Fallback: try a no-arg construction.
+            instance = cls()
+        fn = getattr(instance, method_name, None)
+        if fn is None:
+            raise AttributeError(
+                f"method {method_name!r} not found on {cls_name!r} in {file_path}"
+            )
+        return fn
     fn = getattr(mod, entry, None)
     if fn is None:
         raise AttributeError(f"entry symbol {entry!r} not found in {file_path}")
@@ -77,13 +184,33 @@ def _call_entry(fn, input_: Any):
     """Call the task entry symbol with ``input_``.
 
     ``input_`` may be a dict (→ unpacked as kwargs), a list/tuple (→ *args),
-    or a scalar (→ single positional arg).
+    or a scalar (→ single positional arg). Handles ``async def`` entries by
+    running them in a dedicated event loop (the handover flagged returning a
+    raw coroutine as a silent garbage-score failure).
     """
+    import inspect
+
     if isinstance(input_, dict):
-        return fn(**input_)
-    if isinstance(input_, (list, tuple)):
-        return fn(*input_)
-    return fn(input_)
+        result = fn(**input_)
+    elif isinstance(input_, (list, tuple)):
+        result = fn(*input_)
+    else:
+        result = fn(input_)
+    # Async entries return a coroutine — await it in a fresh loop. This runs
+    # inside asyncio.to_thread (a worker thread), so a nested event loop is
+    # safe here (the outer loop is on the main thread).
+    if inspect.isawaitable(result):
+        import asyncio as _asyncio
+
+        try:
+            loop = _asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is None:
+            return _asyncio.run(result)  # type: ignore[arg-type]
+        # We're somehow inside a running loop on this thread — schedule it.
+        return loop.run_until_complete(result)  # type: ignore[arg-type]
+    return result
 
 
 async def execute(
@@ -218,6 +345,11 @@ async def _run_example(
     t0 = time.perf_counter()
     output: Any = None
     try:
+        # IO-coupled tasks: install the stub harness (D5/D7) before importing
+        # the entry so the instance's self.<dao>.<method>() reads return canned
+        # fixtures. No-op for pure-LLM tasks (no harness file on disk).
+        if "." in (tspec.entry or ""):
+            await asyncio.to_thread(_load_harness, tname, project_root)
         # Offload the (sync) task import + call to a thread so the event loop
         # isn't blocked — parallel examples can then overlap. The import is
         # memoized-ish per module name, and the call is the user's own code.
