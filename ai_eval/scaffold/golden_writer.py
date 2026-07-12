@@ -37,14 +37,25 @@ def _load_existing(path: Path) -> dict | None:
 
 
 def has_real_captures(path: Path) -> bool:
-    """True if the on-disk golden set contains at least one non-empty task list."""
+    """True if the on-disk golden set contains at least one non-auto-seeded
+    capture. Auto-seeded examples (D6, marked ``seed: auto``) don't count as
+    real captures — they're regenerable scaffold, not user/captured data, so
+    they must not flip the init merge/refresh decision.
+    """
     data = _load_existing(path)
     if data is None:
         return False
     tasks = data.get("tasks")
     if not isinstance(tasks, dict):
         return False
-    return any(isinstance(v, list) and len(v) > 0 for v in tasks.values())
+    for v in tasks.values():
+        if not isinstance(v, list):
+            continue
+        for ex in v:
+            # A real capture is any non-auto-seeded example.
+            if isinstance(ex, dict) and ex.get("seed") != "auto":
+                return True
+    return False
 
 
 class GoldenSetOverwriteError(RuntimeError):

@@ -132,9 +132,12 @@ def test_init_force_rewrites_rubrics_but_preserves_captures(
 
     # rubrics.yaml should be rewritten.
     assert "schema_version: 1" in rubrics_path.read_text(encoding="utf-8")
-    # golden_set.json must still contain the real captures.
+    # golden_set.json must still contain the real captures (D6 also auto-seeds
+    # shape variants, so check the real capture survived, not the total count).
     golden_after = json.loads(golden_path.read_text(encoding="utf-8"))
-    assert len(golden_after["tasks"]["customer_support_agent"]) == 1, (
+    task_examples = golden_after["tasks"]["customer_support_agent"]
+    real = [e for e in task_examples if e.get("seed") != "auto"]
+    assert len(real) == 1 and real[0]["id"] == "gs_abc", (
         "real captures were wiped by --force — this is the data-loss bug"
     )
 
@@ -159,8 +162,12 @@ def test_init_reset_golden_discards_captures(
     )
     assert result.exit_code == 0
     golden_after = json.loads(golden_path.read_text(encoding="utf-8"))
-    assert golden_after["tasks"].get("customer_support_agent") == [], (
-        "captures should be reset to [] when --reset-golden is passed"
+    # --reset-golden discards real captures; D6 then auto-seeds, so the task
+    # list has auto-seeds but no real captures.
+    task_examples = golden_after["tasks"].get("customer_support_agent", [])
+    real = [e for e in task_examples if e.get("seed") != "auto"]
+    assert real == [], (
+        "real captures should be discarded when --reset-golden is passed"
     )
 
 

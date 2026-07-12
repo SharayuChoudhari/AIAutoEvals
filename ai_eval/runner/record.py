@@ -49,6 +49,10 @@ class ExampleRecord(BaseModel):
     error: str | None = None
     metric_scores: dict[str, float] = Field(default_factory=dict)
     metric_errors: dict[str, list[str]] = Field(default_factory=dict)
+    #: ``"auto"`` marks an auto-seeded example (D6) so the renderer can emit a
+    #: one-line notice ("scored against auto-seeded fixtures; run bootstrap for
+    #: trustworthy baselines"). ``None`` for real captured/user examples.
+    seed: str | None = None
 
 
 class TaskRecord(BaseModel):

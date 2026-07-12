@@ -160,7 +160,10 @@ async def execute(
             if isinstance(res, Exception):
                 record.errors.append(f"{ex_id}: {type(res).__name__}: {res}")
                 record.examples.append(
-                    ExampleRecord(id=ex_id, status="error", error=str(res))
+                    ExampleRecord(
+                        id=ex_id, status="error", error=str(res),
+                        seed=ex.get("seed"),
+                    )
                 )
                 continue
             assert isinstance(res, ExampleRecord)
@@ -211,6 +214,7 @@ async def _run_example(
 ) -> ExampleRecord:
     ex_id = example.get("id") or f"{tname}_{hash(str(example.get('input'))) & 0xFFFF:x}"
     input_ = example.get("input")
+    seed = example.get("seed")  # "auto" for D6 auto-seeded examples
     t0 = time.perf_counter()
     output: Any = None
     try:
@@ -224,6 +228,7 @@ async def _run_example(
             id=ex_id, status="error",
             latency_ms=(time.perf_counter() - t0) * 1000.0,
             error=f"{type(exc).__name__}: {exc}",
+            seed=seed,
         )
     latency_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -281,6 +286,7 @@ async def _run_example(
         latency_ms=latency_ms,
         metric_scores=metric_scores,
         metric_errors=metric_errors,
+        seed=seed,
     )
 
 

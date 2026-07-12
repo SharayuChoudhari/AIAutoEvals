@@ -156,7 +156,7 @@ def test_write_harnesses_creates_file_for_io_coupled_task(tmp_path: Path) -> Non
     rubrics = _rubrics({
         "svc_process": TaskSpec(file_path="svc.py", entry="Svc.process", type="chat"),
     })
-    written = write_harnesses(rubrics, eval_dir, project_root=tmp_path)
+    written, _ = write_harnesses(rubrics, eval_dir, project_root=tmp_path)
     assert any(status == "wrote" for _, status in written)
     harness_path = eval_dir / "_harness_svc_process.py"
     assert harness_path.is_file()
@@ -176,7 +176,7 @@ def test_write_harnesses_skips_pure_llm_task(tmp_path: Path) -> None:
     rubrics = _rubrics({
         "summarize": TaskSpec(file_path="summarize.py", entry="summarize", type="chat"),
     })
-    written = write_harnesses(rubrics, eval_dir, project_root=tmp_path)
+    written, _ = write_harnesses(rubrics, eval_dir, project_root=tmp_path)
     # No harness file generated for pure-LLM task.
     assert written == []
     assert not (eval_dir / "_harness_summarize.py").exists()
@@ -217,7 +217,7 @@ def test_write_harnesses_preserves_region2_on_regen(tmp_path: Path) -> None:
         "        return docs\n",
         encoding="utf-8",
     )
-    written = write_harnesses(rubrics, eval_dir, project_root=tmp_path)
+    written, _ = write_harnesses(rubrics, eval_dir, project_root=tmp_path)
     assert any(status == "refreshed" for _, status in written)
     refreshed = harness_path.read_text(encoding="utf-8")
     # Region 2 fixture edit preserved.
@@ -242,6 +242,6 @@ def test_write_harnesses_skips_when_hash_unchanged(tmp_path: Path) -> None:
     write_harnesses(rubrics, eval_dir, project_root=tmp_path)
     harness_path = eval_dir / "_harness_svc_process.py"
     mtime_before = harness_path.stat().st_mtime_ns
-    written = write_harnesses(rubrics, eval_dir, project_root=tmp_path)
+    written, _ = write_harnesses(rubrics, eval_dir, project_root=tmp_path)
     assert any(status == "skipped" for _, status in written)
     assert harness_path.stat().st_mtime_ns == mtime_before

@@ -187,6 +187,16 @@ def render_run(record, *, no_color: bool) -> None:
                 state_glyph(INFO, no_color=no_color),
             )
         console.print(table)
+        # D6: if every example in this task is auto-seeded, emit the honest
+        # one-line notice so the user knows scores are against canned fixtures,
+        # not trustworthy regression baselines.
+        auto_seeded = [e for e in t.examples if getattr(e, "seed", None) == "auto"]
+        if t.examples and len(auto_seeded) == len(t.examples):
+            console.print(
+                f"  {state_glyph(SKIP, no_color=no_color)} scored against "
+                f"auto-seeded fixtures; run `ai-evals bootstrap -- <cmd>` for "
+                f"trustworthy regression baselines"
+            )
         errs = [e for e in t.errors]
         if errs:
             for e in errs[:5]:

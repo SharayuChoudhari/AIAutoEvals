@@ -35,6 +35,7 @@ from ai_eval.scaffold import golden_writer, rubrics_writer, tests_writer
 from ai_eval.scaffold.gitignore_patch import ensure_gitignored
 from ai_eval.scaffold.harness_writer import write_harnesses
 from ai_eval.scaffold.hints_writer import write_hints_template
+from ai_eval.scaffold.seeder import seed_golden_set
 from ai_eval.storage.paths import resolve_paths
 from ai_eval.telemetry.logger import get_logger
 from ai_eval.telemetry.progress import status
@@ -326,12 +327,22 @@ def init_command(
         # self.<dao>.<method>() reads with canned fixtures so `run` is green
         # without a live DB/HTTP backend. Region-split; regenerable wiring is
         # AST-hash-gated, fixtures preserved across regenerations.
-        harness_written = write_harnesses(
+        harness_written, io_coupled_names = write_harnesses(
             rubrics, paths.eval_dir, project_root=opts.cwd
         )
         for hname, hstatus in harness_written:
             written.append(
                 (str(paths.eval_dir.relative_to(opts.cwd) / hname), hstatus)
+            )
+
+        # Hybrid golden-set seeding (D6): auto-seed shape-varied inputs for
+        # pure-LLM tasks and a single green-pipeline example for IO-coupled
+        # tasks (the harness supplies canned IO). Runs after write_stub so the
+        # task keys exist; auto-seeds are marked ``seed: auto`` so they don't
+        # count as real captures for the next init's merge decision.
+        if rubrics.tasks:
+            seed_golden_set(
+                rubrics, paths.golden_set_json, io_coupled_names
             )
 
         # Emit a commented-out hints template on first init only — never

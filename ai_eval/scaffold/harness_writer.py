@@ -343,12 +343,14 @@ def write_harnesses(
     eval_dir: Path,
     *,
     project_root: Path,
-) -> list[tuple[str, str]]:
+) -> tuple[list[tuple[str, str]], set[str]]:
     """Generate ``eval/_harness_<task>.py`` for every IO-coupled task.
 
-    Returns ``[(relative_path, status)]`` where status is ``"wrote"`` (new),
-    ``"refreshed"`` (region 1 regenerated because the body hash changed),
-    or ``"skipped"`` (hash unchanged, file untouched).
+    Returns ``([(relative_path, status)], io_coupled_task_names)`` where status
+    is ``"wrote"`` (new), ``"refreshed"`` (region 1 regenerated because the body
+    hash changed), or ``"skipped"`` (hash unchanged, file untouched). The
+    ``io_coupled_task_names`` set lets the golden-set seeder (D6) give those
+    tasks a single green-pipeline example instead of the pure-LLM variant set.
 
     Pure-LLM tasks get no harness. Region 2 (fixtures) is preserved across
     regenerations.
@@ -376,6 +378,7 @@ def write_harnesses(
     _, contexts = build_call_graph(project_root, scan)
 
     specs = _build_harness_specs(rubrics, contexts)
+    io_coupled_names = {s.task_name for s in specs}
     written: list[tuple[str, str]] = []
     eval_dir.mkdir(parents=True, exist_ok=True)
     for spec in specs:
@@ -390,7 +393,7 @@ def write_harnesses(
         path.write_text(content, encoding="utf-8")
         status = "refreshed" if existing_hash is not None else "wrote"
         written.append((path.name, status))
-    return written
+    return written, io_coupled_names
 
 
 __all__ = [
