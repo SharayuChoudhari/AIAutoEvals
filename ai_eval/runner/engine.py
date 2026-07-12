@@ -95,10 +95,17 @@ def _load_harness(task_name: str, cwd: Path) -> bool:
     harness_path = (cwd / "eval" / f"_harness_{safe}.py")
     if not harness_path.is_file():
         return False
-    mod_name = f"_ai_eval_harness_{safe}"
-    if mod_name in sys.modules:
-        # Already installed earlier in this process.
-        return True
+    # Include the cwd in the module name so different repos (same task name)
+    # get distinct harness module instances — a prior test's harness must not
+    # be reused (it patched a different target module instance).
+    import hashlib
+
+    cwd_hash = hashlib.sha1(str(cwd).encode()).hexdigest()[:8]
+    mod_name = f"_ai_eval_harness_{safe}_{cwd_hash}"
+    # Clear any stale harness/target modules from a prior run so install()
+    # patches the freshly-loaded target for THIS repo.
+    for stale in (mod_name, "_ai_eval_harness_target"):
+        sys.modules.pop(stale, None)
     spec = importlib.util.spec_from_file_location(mod_name, harness_path)
     if spec is None or spec.loader is None:
         return False
