@@ -577,6 +577,107 @@ def test_build_slm_empty_evidence_no_entry_files(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# build_rubrics_slm: dotted Class.method task keys collapse to snake_case
+# ---------------------------------------------------------------------------
+
+
+def test_build_slm_collapses_dotted_class_method_key(tmp_path: Path) -> None:
+    """Regression: a detected class-method task carries a dotted
+    ``Class.method`` name (and entry). The SLM builder must collapse that to a
+    snake_case-alphanumeric rubrics key so ``RubricsConfig`` validation does not
+    reject it, while ``TaskSpec.entry`` keeps the resolvable dotted form.
+
+    Before the fix this raised::
+        task name 'DocumentVectorDAO.search_similar_vectors' must be snake_case
+        alphanumeric
+    """
+    (tmp_path / "src").mkdir(parents=True)
+    (tmp_path / "src" / "dao.py").write_text(
+        "class DocumentVectorDAO:\n"
+        "    def search_similar_vectors(self, query_embedding):\n"
+        "        return store.query(query_embedding)\n",
+        encoding="utf-8",
+    )
+    task = _task(
+        name="DocumentVectorDAO.search_similar_vectors",
+        file_path="src/dao.py",
+        entry="DocumentVectorDAO.search_similar_vectors",
+        type_="rag",
+        inputs=["query_embedding"],
+        outputs=["documents"],
+    )
+    scan = _scan([task])
+
+    canned = _slm_task(
+        type_="rag",
+        purpose="vector similarity search over stored documents",
+        inputs=["query_embedding"],
+        outputs=["documents"],
+        metrics=[_slm_metric("context_precision"), _slm_metric("faithfulness")],
+    )
+    from ai_eval.inference.slm.builder import _SLMTask
+
+    fake = _make_complete({_SLMTask: canned})
+
+    rubrics, _stats, _report = build_rubrics_slm(
+        scan, project_root=tmp_path, model="ollama/test:1b", complete_fn=fake
+    )
+    # The dotted key must be collapsed, not emitted verbatim. The class name
+    # ``DocumentVectorDAO`` has consecutive capitals, each split by
+    # ``_camel_to_snake`` (shared with the rules engine), so the collapsed form
+    # is ``document_vector_d_a_o_search_similar_vectors`` — identical to what
+    # the rules engine produces for the same entry.
+    assert "DocumentVectorDAO.search_similar_vectors" not in rubrics.tasks
+    assert "document_vector_d_a_o_search_similar_vectors" in rubrics.tasks
+    spec = rubrics.tasks["document_vector_d_a_o_search_similar_vectors"]
+    # The resolvable dotted entry survives validation (method is defined).
+    assert spec.entry == "DocumentVectorDAO.search_similar_vectors"
+    assert spec.type == "rag"
+
+
+def test_build_slm_empty_recover_collapses_dotted_name(tmp_path: Path) -> None:
+    """Regression (empty-recover path): when the SLM proposes a dotted
+    ``Class.method`` name in the empty-evidence fallback, the builder must
+    collapse it to a snake_case key. Covers the second emit site
+    (``builder.py`` empty-recover loop) that the original bug also affected.
+    """
+    (tmp_path / "main.py").write_text(
+        "class ConversationWorkflowService:\n"
+        "    def _call_model(self, prompt):\n"
+        "        return openai.chat.completions.create(model='gpt-4o-mini')\n",
+        encoding="utf-8",
+    )
+    scan = _scan([])
+    from ai_eval.inference.slm.builder import _SLMRecovery, _SLMTaskNamed
+
+    canned = _SLMRecovery(
+        tasks=[
+            _SLMTaskNamed(
+                name="ConversationWorkflowService._call_model",
+                file_path="main.py",
+                entry="ConversationWorkflowService._call_model",
+                type="chat",
+                purpose="call the model",
+                inputs=["prompt"],
+                outputs=["answer"],
+                metrics=[_slm_metric("hallucination_rate")],
+            )
+        ]
+    )
+    fake = _make_complete({_SLMRecovery: canned})
+    rubrics, stats, _report = build_rubrics_slm(
+        scan, project_root=tmp_path, model="ollama/test:1b", complete_fn=fake
+    )
+    assert stats.fallback_used is True
+    # Private-method leading underscore dropped; CamelCase class → snake_case.
+    assert "conversation_workflow_service_call_model" in rubrics.tasks
+    assert "ConversationWorkflowService._call_model" not in rubrics.tasks
+    spec = rubrics.tasks["conversation_workflow_service_call_model"]
+    # Dotted entry survives (method is defined in the file).
+    assert spec.entry == "ConversationWorkflowService._call_model"
+
+
+# ---------------------------------------------------------------------------
 # validate_against_scan: drop hallucinated paths / entries
 # ---------------------------------------------------------------------------
 

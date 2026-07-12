@@ -47,7 +47,7 @@ from ai_eval.inference.slm.evidence import (
 )
 from ai_eval.inference.slm.prompts import render, render_few_shot
 from ai_eval.inference.slm.validation import ValidationReport, validate_against_scan
-from ai_eval.inference.synthesize import _unique_name
+from ai_eval.inference.synthesize import _collapse_dotted_name, _unique_name
 from ai_eval.metrics.registry import all_names
 from ai_eval.metrics.registry import get as get_metric
 
@@ -381,7 +381,9 @@ def build_rubrics_slm(
             )
             if spec is None:
                 continue
-            name = _unique_name(task.name, used_names)
+            name = _unique_name(
+                _collapse_dotted_name(task.name, task.entry), used_names
+            )
             used_names.add(name)
             task_specs[name] = spec
             spent_chars += prompt_chars
@@ -398,7 +400,9 @@ def build_rubrics_slm(
             stats=stats,
         )
         for named in recovered:
-            name = _unique_name(named.name, used_names)
+            name = _unique_name(
+                _collapse_dotted_name(named.name, named.entry), used_names
+            )
             used_names.add(name)
             task_specs[name] = _task_spec_from_slm(
                 named, file_path=named.file_path, entry=named.entry

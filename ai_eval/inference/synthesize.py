@@ -116,6 +116,25 @@ def _camel_to_snake(name: str) -> str:
     return _CAMEL_BOUNDARY.sub("_", name).lower()
 
 
+def _collapse_dotted_name(name: str, entry: str | None) -> str:
+    """Collapse a dotted ``Class.method`` name to a snake_case-alphanumeric key.
+
+    ``Class.method`` → ``class_method``: CamelCase class names split to
+    snake_case and the leading underscore of private methods is dropped so the
+    key never begins with ``_``. Bare module-level names (no ``.`` in
+    ``entry``) pass through unchanged. The dotted resolvable form stays in
+    ``TaskSpec.entry``; only the rubrics dict key is collapsed.
+    """
+    if entry and "." in entry:
+        # ``ConversationWorkflowService._call_model`` →
+        # ``conversation_workflow_service_call_model``.
+        cls, _, method = entry.rpartition(".")
+        cls_part = _camel_to_snake(cls.replace(".", "_"))
+        method_part = method.lstrip("_")
+        name = f"{cls_part}_{method_part}" if method_part else cls_part
+    return name
+
+
 def _rubric_key_name(task: DetectedTask) -> str:
     """Derive a snake_case-alphanumeric rubrics key from a detected task.
 
@@ -126,17 +145,7 @@ def _rubric_key_name(task: DetectedTask) -> str:
     is schema-valid while ``entry`` keeps the resolvable dotted form. Bare
     module-level names pass through unchanged.
     """
-    name = task.name
-    if task.entry and "." in task.entry:
-        # ``ConversationWorkflowService._call_model`` →
-        # ``conversation_workflow_service_call_model``. CamelCase class names
-        # split to snake_case; the leading underscore of private methods is
-        # dropped so the key never begins with ``_``.
-        cls, _, method = task.entry.rpartition(".")
-        cls_part = _camel_to_snake(cls.replace(".", "_"))
-        method_part = method.lstrip("_")
-        name = f"{cls_part}_{method_part}" if method_part else cls_part
-    return name
+    return _collapse_dotted_name(task.name, task.entry)
 
 
 def build_rubrics(
