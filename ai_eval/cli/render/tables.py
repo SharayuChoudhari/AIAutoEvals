@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from rich.console import Console
 from rich.table import Table
 
-from ai_eval.cli.render.theme import FAIL, INFO, PASS, state_glyph
+from ai_eval.cli.render.theme import FAIL, INFO, PASS, SKIP, state_glyph
 
 
 def stdout_console(*, no_color: bool) -> Console:
@@ -135,6 +135,22 @@ def _fmt_num(v: float | None, prec: int = 4) -> str:
     return "" if v is None else f"{v:.{prec}f}"
 
 
+def _metric_glyph(status: str, *, no_color: bool) -> str:
+    """Map a metric status to its state glyph.
+
+    ``pass``/``fail`` are real outcomes; ``skip`` (no score / no examples) and
+    ``error`` are surfaced distinctly so a skipped metric is never mistaken for
+    a genuine threshold failure.
+    """
+    if status == "pass":
+        return state_glyph(PASS, no_color=no_color)
+    if status == "fail":
+        return state_glyph(FAIL, no_color=no_color)
+    if status == "error":
+        return state_glyph(FAIL, no_color=no_color)
+    return state_glyph(SKIP, no_color=no_color)
+
+
 def render_run(record, *, no_color: bool) -> None:
     """Render a run record as a per-task metric table with a Δ column."""
     console = stdout_console(no_color=no_color)
@@ -145,6 +161,11 @@ def render_run(record, *, no_color: bool) -> None:
         f"{s.passed} passed, {s.failed} failed, {s.errors} errors "
         f"({s.examples} examples)"
     )
+    if s.examples == 0:
+        console.print(
+            f"{state_glyph(SKIP, no_color=no_color)} no examples ran — "
+            f"golden set is empty; run `ai-evals bootstrap -- <cmd>` to capture traces"
+        )
     for tname, t in record.tasks.items():
         console.print(f"\n[cyan]{tname}[/cyan]")
         table = Table(show_header=True, header_style="bold")
@@ -155,7 +176,7 @@ def render_run(record, *, no_color: bool) -> None:
         table.add_column("status", no_wrap=True)
         for mname, m in t.metrics.items():
             delta = "—" if m.delta is None else f"{m.delta:+.4f}"
-            st = state_glyph(PASS if m.status == "pass" else FAIL, no_color=no_color)
+            st = _metric_glyph(m.status, no_color=no_color)
             table.add_row(mname, _fmt_num(m.score), delta, f"{m.threshold:.4f}", st)
         if t.latency_ms:
             table.add_row(

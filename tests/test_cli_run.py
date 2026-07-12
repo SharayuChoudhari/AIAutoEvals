@@ -215,3 +215,44 @@ def test_run_saves_to_history(
     runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "run"])
     history = json.loads((tmp_path / ".ai-evals" / "history.json").read_text())
     assert len(history["runs"]) == 1
+
+
+def test_run_empty_golden_set_marks_metrics_skip(
+    runner: CliRunner, tmp_path: Path, monkeypatch, clean_env
+) -> None:
+    """A task whose golden array is empty → 0 examples → metric status `skip`,
+    never `fail`. The human render must show a skip glyph + a bootstrap hint,
+    not a misleading `✗ fail`."""
+    _fake_complete_factory(monkeypatch, score=0.9)
+    _setup_repo(tmp_path, metric_threshold=0.5)
+    # Overwrite golden set with an empty capture array for the task.
+    (tmp_path / "eval" / "golden_set.json").write_text(
+        json.dumps({"schema_version": 1, "tasks": {"chat_task": []}}),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "run"])
+    assert result.exit_code == 0, result.stderr or result.output
+    payload = json.loads(result.stdout)
+    m = payload["tasks"]["chat_task"]["metrics"]["hallucination_rate"]
+    assert m["status"] == "skip"
+    assert m["score"] is None
+    assert payload["summary"]["examples"] == 0
+
+
+def test_run_empty_golden_set_human_warns_and_skips(
+    runner: CliRunner, tmp_path: Path, monkeypatch, clean_env
+) -> None:
+    _fake_complete_factory(monkeypatch, score=0.9)
+    _setup_repo(tmp_path, metric_threshold=0.5)
+    (tmp_path / "eval" / "golden_set.json").write_text(
+        json.dumps({"schema_version": 1, "tasks": {"chat_task": []}}),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["-C", str(tmp_path), "--format", "human", "--no-color", "run"])
+    assert result.exit_code == 0
+    out = result.output
+    assert "0 examples" in out
+    assert "no examples ran" in out
+    assert "bootstrap" in out
+    # skip glyph label must appear, not a bare fail
+    assert "skip" in out

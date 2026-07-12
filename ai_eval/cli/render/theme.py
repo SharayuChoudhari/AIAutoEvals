@@ -18,6 +18,7 @@ class State:
 PASS = State(icon="\u2713", color="green", label="pass")           # ✓
 FAIL = State(icon="\u2717", color="red", label="fail")             # ✗
 INFO = State(icon="-", color="bright_black", label="info")
+SKIP = State(icon="-", color="yellow", label="skip")
 # WARN, IDENT, LINK intentionally omitted until a rendering phase uses them.
 
 
@@ -38,6 +39,7 @@ __all__ = [
     "FAIL",
     "INFO",
     "PASS",
+    "SKIP",
     "State",
     "state_glyph",
     "styled",
