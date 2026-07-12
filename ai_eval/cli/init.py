@@ -33,6 +33,7 @@ from ai_eval.inference.ast_scan import scan_repo
 from ai_eval.inference.hints import merge_hints
 from ai_eval.scaffold import golden_writer, rubrics_writer, tests_writer
 from ai_eval.scaffold.gitignore_patch import ensure_gitignored
+from ai_eval.scaffold.harness_writer import write_harnesses
 from ai_eval.scaffold.hints_writer import write_hints_template
 from ai_eval.storage.paths import resolve_paths
 from ai_eval.telemetry.logger import get_logger
@@ -320,6 +321,18 @@ def init_command(
 
         tests_writer.write(paths.tests_py)
         written.append((str(paths.tests_py.relative_to(opts.cwd)), "wrote"))
+
+        # IO-coupled tasks get a stub harness (D5): monkey-patches their
+        # self.<dao>.<method>() reads with canned fixtures so `run` is green
+        # without a live DB/HTTP backend. Region-split; regenerable wiring is
+        # AST-hash-gated, fixtures preserved across regenerations.
+        harness_written = write_harnesses(
+            rubrics, paths.eval_dir, project_root=opts.cwd
+        )
+        for hname, hstatus in harness_written:
+            written.append(
+                (str(paths.eval_dir.relative_to(opts.cwd) / hname), hstatus)
+            )
 
         # Emit a commented-out hints template on first init only — never
         # overwrite a user-edited hints file (re-runs preserve edits, mirroring
