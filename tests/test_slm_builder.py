@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import BaseModel
 
 from ai_eval.config.schema import JudgeConfig, RubricsConfig, TaskSpec
 from ai_eval.inference.ast_scan import ScanResult
@@ -897,3 +898,81 @@ def test_build_slm_does_not_pin_non_hint_task_type(tmp_path: Path) -> None:
     spec = rubrics.tasks["handler"]
     # SLM's type survives for a non-hint task.
     assert spec.type == "tool_calling"
+
+
+# ---------------------------------------------------------------------------
+# Instructor wire mode: JSON_SCHEMA avoids the "Tool name does not match"
+# failure that weak local models hit under the default Mode.TOOLS.
+# ---------------------------------------------------------------------------
+
+
+def test_complete_uses_json_schema_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``complete`` must build its instructor client with ``Mode.JSON_SCHEMA``
+    so the model returns structured JSON via ``response_format`` rather than a
+    function-call tool. Under ``Mode.TOOLS`` weak models (e.g.
+    ``ollama/qwen2.5-coder:7b``) hallucinate a semantically-named tool and the
+    provider rejects it with "Tool name does not match"."""
+    import sys
+
+    # Other test modules (test_bootstrap_wrappers, test_e2e) replace
+    # ``sys.modules["openai"]`` with a spec-less stub and never restore it.
+    # ``import instructor`` probes ``importlib.util.find_spec("openai")`` (which
+    # raises ``ValueError`` on a stub with ``__spec__ is None``), and
+    # ``instructor.from_litellm`` lazily imports ``instructor.v2.core.patch``
+    # which does ``from openai import AsyncOpenAI, OpenAI``. Both fail against
+    # the stub, so restore the real ``openai`` package BEFORE importing
+    # instructor.
+    saved_openai = {
+        name: mod
+        for name, mod in sys.modules.items()
+        if name == "openai" or name.startswith("openai.")
+    }
+    for name in list(sys.modules):
+        if name == "openai" or name.startswith("openai."):
+            del sys.modules[name]
+    import importlib
+
+    importlib.import_module("openai")  # re-import the real package
+
+    import instructor
+
+    from ai_eval.inference.slm import client as slm_client
+
+    captured: dict[str, Any] = {}
+
+    class _FakeCompletions:
+        def create(self, **kwargs: Any) -> Any:
+            captured["create_kwargs"] = kwargs
+            return kwargs["response_model"]()
+
+    class _FakeChat:
+        completions = _FakeCompletions()
+
+    class _FakeClient:
+        chat = _FakeChat()
+
+    def _fake_from_litellm(completion, *, mode=None, **kwargs):
+        captured["mode"] = mode
+        captured["completion"] = completion
+        return _FakeClient()
+
+    monkeypatch.setattr(instructor, "from_litellm", _fake_from_litellm)
+
+    class _Resp(BaseModel):
+        ok: bool = True
+
+    try:
+        result = slm_client.complete(
+            model="ollama/qwen2.5-coder:7b",
+            messages=[{"role": "user", "content": "hi"}],
+            response_model=_Resp,
+        )
+        assert result.ok is True
+        assert captured["mode"] is instructor.Mode.JSON_SCHEMA
+    finally:
+        # Restore whatever openai state existed before this test so we don't
+        # perturb later tests' view of sys.modules.
+        for name in list(sys.modules):
+            if name == "openai" or name.startswith("openai."):
+                del sys.modules[name]
+        sys.modules.update(saved_openai)

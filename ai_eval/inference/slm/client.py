@@ -24,6 +24,15 @@ T = TypeVar("T", bound=BaseModel)
 #: type to avoid network/ollama dependencies.
 CompleteFn = Callable[..., Any]
 
+#: Instructor mode used for SLM calls. ``JSON_SCHEMA`` sends a strict JSON
+#: schema via ``response_format`` instead of a function-call tool, so there is
+#: no tool name for the model to echo — weak local models (e.g.
+#: ``ollama/qwen2.5-coder:7b``) frequently hallucinate a semantically-named
+#: tool under the default ``Mode.TOOLS`` and the provider rejects it with
+#: "Tool name does not match". JSON_SCHEMA keeps the single SLM call and the
+#: existing Pydantic validation contract intact.
+_INSTRUCTOR_MODE = "json_schema_mode"
+
 
 def complete(
     model: str,
@@ -49,7 +58,9 @@ def complete(
             "pip install ai-evals or run with --rubric-engine rules",
         ) from exc
 
-    client = instructor.from_litellm(litellm.completion)
+    client = instructor.from_litellm(
+        litellm.completion, mode=instructor.Mode(_INSTRUCTOR_MODE)
+    )
     try:
         return client.chat.completions.create(
             model=model,
