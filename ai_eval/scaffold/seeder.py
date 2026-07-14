@@ -90,15 +90,21 @@ def seed_golden_set(
     path: Path,
     io_coupled_tasks: set[str],
 ) -> list[tuple[str, int]]:
-    """Auto-seed ``golden_set.json`` for every task in ``rubrics``.
+    """Auto-seed ``golden_set.json`` for every top-level task in ``rubrics``.
 
     Runs after :func:`golden_writer.write_stub` so the task keys exist. For each
     task: if the task already has real (non-auto) captures, preserve them and
     refresh only the auto-seeds (re-seeding replaces prior auto-seeds). If the
     task has no real captures, fill it with the auto-seed set.
 
-    ``io_coupled_tasks`` — task names classified IO-coupled (D4) get a single
-    green-pipeline example; the rest get the pure-LLM shape variants.
+    **Non-top-level tasks** (``top_level=False`` — private methods, IO-coupled
+    services) are skipped entirely: their task key gets an empty list and the
+    run prints a notice directing the user to ``ai-evals bootstrap`` (AGENTS.md
+    §1). This is the "target the complete job" contract.
+
+    ``io_coupled_tasks`` — task names classified IO-coupled (D4) that are still
+    top-level get a single green-pipeline example; the rest get the pure-LLM
+    shape variants.
 
     Returns ``[(task_name, num_seeded)]``.
     """
@@ -107,11 +113,17 @@ def seed_golden_set(
     if not isinstance(tasks, dict):
         tasks = {}
     seeded: list[tuple[str, int]] = []
-    for name in rubrics.tasks:
+    for name, tspec in rubrics.tasks.items():
         existing = tasks.get(name, [])
         if not isinstance(existing, list):
             existing = []
         real = _strip_auto_seeds(existing)
+        if not tspec.top_level:
+            # Non-top-level (internal) tasks: preserve real captures if any,
+            # but do NOT auto-seed. The run will skip with a bootstrap notice.
+            tasks[name] = real
+            seeded.append((name, 0))
+            continue
         auto = seed_for_task(name, io_coupled=name in io_coupled_tasks)
         tasks[name] = real + auto
         seeded.append((name, len(auto)))

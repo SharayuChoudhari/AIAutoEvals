@@ -1,9 +1,11 @@
 """Extensible metric registry.
 
-Built-in metrics ship in code (:data:`BUILTIN_METRICS`). Third parties extend
-the set via the ``ai_eval.metrics`` entry-point group, which is loaded lazily by
-:func:`load_metrics` (mirroring ``load_entrypoint_detectors`` in
-``ast_scan.py:79``).
+Built-in metrics ship in code (:data:`BUILTIN_METRICS`) — the high-frequency
+set only. Niche/project-specific metrics live in the consuming project's
+``eval/metrics.yaml``, loaded and merged at runtime by
+:mod:`ai_eval.metrics.local`. Third parties also extend the set via the
+``ai_eval.metrics`` entry-point group, loaded lazily by :func:`load_metrics`
+(mirroring ``load_entrypoint_detectors`` in ``ast_scan.py:79``).
 
 The :class:`~ai_eval.config.schema.MetricSpec` schema validator consults
 :func:`is_registered` to reject unknown metric names, keeping both the rule and
@@ -12,6 +14,12 @@ SLM engines on the same validation surface.
 A one-release deprecation window: unknown names emit a warning via
 :func:`warn_unknown` rather than being rejected outright. Set the env var
 ``AI_EVAL_STRICT_METRICS=1`` to enforce hard rejection now.
+
+Merge order in :func:`load_metrics` / :func:`load_judge_metrics`:
+1. Built-ins (always win on name collision).
+2. Project-local ``eval/metrics.yaml`` (can only ADD names, never override
+   built-ins).
+3. Entry-point plugins (dedup by ``seen`` set).
 """
 
 from __future__ import annotations
@@ -20,6 +28,7 @@ import os
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -56,6 +65,12 @@ class JudgeMetric:
     non_judge: bool = False
 
 
+#: The high-frequency built-in metric set. Niche/project-specific metrics
+#: (slot_filling_accuracy, translation_bleu, classification_f1,
+#: extraction_field_accuracy, scoring_accuracy, summary_faithfulness, and any
+#: custom metric) live in the consuming project's ``eval/metrics.yaml`` — see
+#: :mod:`ai_eval.metrics.local` and ``docs/metrics.md``. Do NOT add niche
+#: metrics back here; built-ins stay the high-frequency set only.
 BUILTIN_METRICS: tuple[Metric, ...] = (
     Metric(
         name="hallucination_rate",
@@ -82,48 +97,13 @@ BUILTIN_METRICS: tuple[Metric, ...] = (
         applicable_task_types=("tool_calling", "agent"),
     ),
     Metric(
-        name="scoring_accuracy",
-        description="Agreement of model scores with reference rubric scores.",
-        default_threshold=0.85,
-        applicable_task_types=("scoring",),
-    ),
-    Metric(
-        name="extraction_field_accuracy",
-        description="Per-field accuracy of extracted structured fields vs. reference.",
-        default_threshold=0.9,
-        applicable_task_types=("extraction",),
-    ),
-    Metric(
-        name="classification_f1",
-        description="Macro-F1 across classification labels.",
-        default_threshold=0.85,
-        applicable_task_types=("classification",),
-    ),
-    Metric(
-        name="summary_faithfulness",
-        description="Faithfulness of a summary to its source text.",
-        default_threshold=0.9,
-        applicable_task_types=("summarization",),
-    ),
-    Metric(
-        name="translation_bleu",
-        description="BLEU score of translated output against references.",
-        default_threshold=0.4,
-        applicable_task_types=("translation",),
-    ),
-    Metric(
         name="task_completion",
         description="Whether the end-to-end task (e.g. booking, agent) completed successfully.",
         default_threshold=0.9,
         applicable_task_types=("booking", "workflow", "agent"),
     ),
-    Metric(
-        name="slot_filling_accuracy",
-        description="Accuracy of slots/arguments filled for booking or workflow tasks.",
-        default_threshold=0.9,
-        applicable_task_types=("booking", "workflow"),
-    ),
 )
+
 
 def _latency_p50(_: Any = None, __: Any = None, ___: Any = None) -> list[dict[str, str]]:
     return []  # pragma: no cover - non_judge; never called
@@ -137,8 +117,7 @@ BUILTIN_JUDGE_METRICS_TUPLE: tuple[JudgeMetric, ...] = (
     JudgeMetric(
         name="latency_p50",
         description=(
-            "Median (p50) task latency in milliseconds. "
-            "Computed by the runner; no judge call."
+            "Median (p50) task latency in milliseconds. Computed by the runner; no judge call."
         ),
         applicable_task_types=(),
         scored_dimension="latency_ms",
@@ -157,43 +136,60 @@ BUILTIN_JUDGE_METRICS_TUPLE: tuple[JudgeMetric, ...] = (
 
 _EP_GROUP = "ai_eval.metrics"
 
-#: Memoized metric set. Entry-point discovery + plugin loading is relatively
-#: expensive and runs on every ``is_registered``/``get`` call (the schema
-#: validator calls ``is_registered`` per metric name), so we cache the result
-#: for the process. ``reset_cache`` (called by tests that patch entry points)
-#: invalidates it.
-_metrics_cache: tuple[Metric, ...] | None = None
-_judge_metrics_cache: tuple[JudgeMetric, ...] | None = None
+#: Memoized metric sets, keyed by ``project_root`` (or ``None`` when no root is
+#: available, e.g. the schema validator). Entry-point discovery + plugin loading
+#: is relatively expensive and runs on every ``is_registered``/``get`` call (the
+#: schema validator calls ``is_registered`` per metric name), so we cache the
+#: result per process-root. ``reset_cache`` (called by tests that patch entry
+#: points or change the local metrics file) invalidates it.
+_metrics_cache: dict[Path | None, tuple[Metric, ...]] = {}
+_judge_metrics_cache: dict[Path | None, tuple[JudgeMetric, ...]] = {}
 
 
 def reset_cache() -> None:
     """Invalidate the memoized metric sets (used by tests that patch plugins)."""
-    global _metrics_cache, _judge_metrics_cache
-    _metrics_cache = None
-    _judge_metrics_cache = None
+    _metrics_cache.clear()
+    _judge_metrics_cache.clear()
 
 
-def load_metrics() -> tuple[Metric, ...]:
-    """Return built-in metrics plus any contributed via the entry-point group.
+def load_metrics(project_root: Path | None = None) -> tuple[Metric, ...]:
+    """Return built-in + project-local + plugin metrics.
 
-    Memoized for the process: entry-point discovery and plugin loading happen
-    once, since the registry is consulted on every ``MetricSpec`` validation.
+    Memoized for the process (keyed by ``project_root`` so a test that changes
+    the root sees fresh local metrics): entry-point discovery and plugin loading
+    happen once per root, since the registry is consulted on every
+    ``MetricSpec`` validation.
+
+    Merge order — built-ins always win on name collision; project-local
+    ``eval/metrics.yaml`` can only ADD names; entry-point plugins fill the rest.
     """
-    global _metrics_cache
-    if _metrics_cache is not None:
-        return _metrics_cache
+    cache_key = project_root
+    cached = _metrics_cache.get(cache_key)
+    if cached is not None:
+        return cached
     builtins = BUILTIN_METRICS
+    local: tuple[Metric, ...] = ()
+    if project_root is not None:
+        from ai_eval.metrics.local import load_local_metrics
+
+        local = load_local_metrics(project_root)
+    extra: list[Metric] = []
     try:
         from importlib.metadata import entry_points
     except ImportError:  # pragma: no cover
-        _metrics_cache = builtins
-        return builtins
-    extra: list[Metric] = []
+        result = (*builtins, *local)
+        _metrics_cache[cache_key] = result
+        return result
     try:
         eps = entry_points(group=_EP_GROUP)
     except TypeError:
         eps = entry_points().get(_EP_GROUP, [])  # type: ignore[attr-defined]
     seen = {m.name for m in builtins}
+    # Project-local can only ADD names (never override built-ins).
+    for m in local:
+        if m.name not in seen:
+            seen.add(m.name)
+            extra.append(m)
     for ep in eps:
         try:
             obj = ep.load()
@@ -206,37 +202,53 @@ def load_metrics() -> tuple[Metric, ...]:
             continue
         seen.add(metric.name)
         extra.append(metric)
-    _metrics_cache = (*builtins, *extra)
-    return _metrics_cache
+    result = (*builtins, *extra)
+    _metrics_cache[cache_key] = result
+    return result
 
 
-def load_judge_metrics() -> tuple[JudgeMetric, ...]:
-    """Return built-in judge metrics plus plugin-contributed ones.
+def load_judge_metrics(project_root: Path | None = None) -> tuple[JudgeMetric, ...]:
+    """Return built-in judge metrics plus project-local + plugin ones.
 
-    Built-ins come from ``ai_eval.metrics.judge_builtin`` (the four judge
-    metrics) plus the local latency pair. Plugins expose a ``JudgeMetric``
-    (or a compatible dataclass/dict) under the same ``ai_eval.metrics`` group.
+    Built-ins come from ``ai_eval.metrics.judge_builtin`` (the five judge
+    metrics) plus the local latency pair. Project-local ``eval/metrics.yaml``
+    metrics with a ``prompt_template`` are merged here. Plugins expose a
+    ``JudgeMetric`` (or a compatible dataclass/dict) under the same
+    ``ai_eval.metrics`` group.
+
+    Merge order — built-ins win; project-local can only ADD; plugins fill.
     """
-    global _judge_metrics_cache
-    if _judge_metrics_cache is not None:
-        return _judge_metrics_cache
+    cache_key = project_root
+    cached = _judge_metrics_cache.get(cache_key)
+    if cached is not None:
+        return cached
     from ai_eval.metrics.judge_builtin import BUILTIN_JUDGE_METRICS
 
     builtins: tuple[JudgeMetric, ...] = (
         *BUILTIN_JUDGE_METRICS,
         *BUILTIN_JUDGE_METRICS_TUPLE,
     )
+    local: tuple[JudgeMetric, ...] = ()
+    if project_root is not None:
+        from ai_eval.metrics.local import load_local_judge_metrics
+
+        local = load_local_judge_metrics(project_root)
+    extra: list[JudgeMetric] = []
     try:
         from importlib.metadata import entry_points
     except ImportError:  # pragma: no cover
-        _judge_metrics_cache = builtins
-        return builtins
-    extra: list[JudgeMetric] = []
+        result = (*builtins, *local)
+        _judge_metrics_cache[cache_key] = result
+        return result
     try:
         eps = entry_points(group=_EP_GROUP)
     except TypeError:
         eps = entry_points().get(_EP_GROUP, [])  # type: ignore[attr-defined]
     seen = {m.name for m in builtins}
+    for m in local:
+        if m.name not in seen:
+            seen.add(m.name)
+            extra.append(m)
     for ep in eps:
         try:
             obj = ep.load()
@@ -247,8 +259,9 @@ def load_judge_metrics() -> tuple[JudgeMetric, ...]:
             continue
         seen.add(metric.name)
         extra.append(metric)
-    _judge_metrics_cache = (*builtins, *extra)
-    return _judge_metrics_cache
+    result = (*builtins, *extra)
+    _judge_metrics_cache[cache_key] = result
+    return result
 
 
 def _coerce_judge_plugin(obj: object, ep_name: str) -> JudgeMetric | None:
@@ -269,9 +282,7 @@ def _coerce_judge_plugin(obj: object, ep_name: str) -> JudgeMetric | None:
         except (KeyError, TypeError, ValueError):
             return None
     if isinstance(obj, str):
-        return JudgeMetric(
-            name=obj, description=f"plugin judge metric {ep_name}", non_judge=False
-        )
+        return JudgeMetric(name=obj, description=f"plugin judge metric {ep_name}", non_judge=False)
     return None
 
 
@@ -295,34 +306,34 @@ def _coerce_plugin(obj: object, ep_name: str) -> Metric | None:
     return None
 
 
-def all_names() -> list[str]:
-    """All registered metric names (legacy + judge + latency)."""
-    names = {m.name for m in load_metrics()}
-    names |= {m.name for m in load_judge_metrics()}
+def all_names(project_root: Path | None = None) -> list[str]:
+    """All registered metric names (legacy + judge + latency + local)."""
+    names = {m.name for m in load_metrics(project_root)}
+    names |= {m.name for m in load_judge_metrics(project_root)}
     return sorted(names)
 
 
-def is_registered(name: str) -> bool:
-    if name in {m.name for m in load_metrics()}:
+def is_registered(name: str, project_root: Path | None = None) -> bool:
+    if name in {m.name for m in load_metrics(project_root)}:
         return True
-    return name in {m.name for m in load_judge_metrics()}
+    return name in {m.name for m in load_judge_metrics(project_root)}
 
 
-def get(name: str) -> Metric | None:
-    for m in load_metrics():
+def get(name: str, project_root: Path | None = None) -> Metric | None:
+    for m in load_metrics(project_root):
         if m.name == name:
             return m
     return None
 
 
-def get_judge_metric(name: str) -> JudgeMetric | None:
+def get_judge_metric(name: str, project_root: Path | None = None) -> JudgeMetric | None:
     """Return the judge metric for ``name`` or ``None`` if not registered.
 
     The run-time strict gate (:mod:`ai_eval.runner.thresholds`) calls this and
     raises :class:`MetricNotImplementedError` (exit 1) when a rubrics.yaml
     metric has no implementation — even when init-time validation only warned.
     """
-    for m in load_judge_metrics():
+    for m in load_judge_metrics(project_root):
         if m.name == name:
             return m
     return None
@@ -330,7 +341,10 @@ def get_judge_metric(name: str) -> JudgeMetric | None:
 
 def is_strict() -> bool:
     return os.environ.get("AI_EVAL_STRICT_METRICS", "").strip().lower() in {
-        "1", "true", "yes", "on",
+        "1",
+        "true",
+        "yes",
+        "on",
     }
 
 

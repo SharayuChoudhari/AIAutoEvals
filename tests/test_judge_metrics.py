@@ -51,6 +51,7 @@ def test_get_judge_metric_unknown_returns_none() -> None:
 def _task(type_="rag", purpose="answer the query"):
     class _T:
         pass
+
     t = _T()
     t.type = type_
     t.purpose = purpose

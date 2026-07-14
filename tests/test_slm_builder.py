@@ -280,7 +280,9 @@ def test_build_slm_guard_promotes_detector_confirmed_rag_over_weak_chat(
     already classified ``rag`` must NOT silently downgrade the rubric to chat.
     The guard promotes the task back to ``rag`` with RAG metrics."""
     _write_func(
-        tmp_path, "services/chat_messages.py", "chat_messages",
+        tmp_path,
+        "services/chat_messages.py",
+        "chat_messages",
         "return vectorstore.similarity_search(query, filter={'tenant_id': tenant_id})",
     )
     task = _task(
@@ -320,8 +322,12 @@ def test_build_slm_guard_recovers_rag_from_io_shape_without_detector(
     """The guard also fires on IO shape alone (query input + answer output)
     even when the detector itself typed the task ``chat`` — mirrors the rules
     engine's ``_looks_like_rag`` recovery for undetected frameworks."""
-    _write_func(tmp_path, "services/rag.py", "tenant_qa",
-                "return openai.chat.completions.create(model='gpt-4o-mini')")
+    _write_func(
+        tmp_path,
+        "services/rag.py",
+        "tenant_qa",
+        "return openai.chat.completions.create(model='gpt-4o-mini')",
+    )
     task = _task(
         name="tenant_qa",
         file_path="services/rag.py",
@@ -353,14 +359,24 @@ def test_build_slm_guard_does_not_promote_chat_qa_without_detector(tmp_path: Pat
     genuine chat tasks. The broad answer-like hint is only trusted with
     detector confirmation."""
     _write_func(
-        tmp_path, "chat/qa.py", "answer",
+        tmp_path,
+        "chat/qa.py",
+        "answer",
         "return openai.chat.completions.create(model='gpt-4o-mini')",
     )
-    task = _task(name="answer", file_path="chat/qa.py", entry="answer",
-                 type_="chat", inputs=["query"], outputs=["answer"])
+    task = _task(
+        name="answer",
+        file_path="chat/qa.py",
+        entry="answer",
+        type_="chat",
+        inputs=["query"],
+        outputs=["answer"],
+    )
     scan = _scan([task])
     canned = _slm_task(
-        type_="chat", inputs=["query"], outputs=["answer"],
+        type_="chat",
+        inputs=["query"],
+        outputs=["answer"],
         metrics=[_slm_metric("hallucination_rate")],
     )
     from ai_eval.inference.slm.builder import _SLMTask
@@ -378,8 +394,12 @@ def test_build_slm_guard_preserves_deliberate_non_rag_classification(
     """When the SLM deliberately picks a specific non-RAG type (extraction,
     not a chat/other punt), the guard must NOT override it — the SLM owns the
     type in that case."""
-    _write_func(tmp_path, "extract/invoice.py", "parse_invoice",
-                "return openai.chat.completions.create(model='gpt-4o-mini')")
+    _write_func(
+        tmp_path,
+        "extract/invoice.py",
+        "parse_invoice",
+        "return openai.chat.completions.create(model='gpt-4o-mini')",
+    )
     task = _task(
         name="parse_invoice",
         file_path="extract/invoice.py",
@@ -393,7 +413,7 @@ def test_build_slm_guard_preserves_deliberate_non_rag_classification(
         type_="extraction",
         inputs=["document_text"],
         outputs=["vendor", "total"],
-        metrics=[_slm_metric("extraction_field_accuracy")],
+        metrics=[_slm_metric("argument_accuracy")],
     )
     from ai_eval.inference.slm.builder import _SLMTask
 
@@ -408,15 +428,24 @@ def test_build_slm_guard_keeps_slm_rag_metrics_when_present(tmp_path: Path) -> N
     """If the guard promotes type→rag but the SLM already supplied a RAG metric,
     keep the SLM's metrics rather than clobbering with defaults."""
     _write_func(tmp_path, "services/rag.py", "qa", "return vectorstore.similarity_search(q)")
-    task = _task(name="qa", file_path="services/rag.py", entry="qa",
-                 type_="rag", inputs=["query"], outputs=["documents"])
+    task = _task(
+        name="qa",
+        file_path="services/rag.py",
+        entry="qa",
+        type_="rag",
+        inputs=["query"],
+        outputs=["documents"],
+    )
     scan = _scan([task])
     canned = _slm_task(
         type_="chat",
         inputs=["query"],
         outputs=["answer"],
-        metrics=[_slm_metric("context_precision"), _slm_metric("faithfulness"),
-                 _slm_metric("hallucination_rate")],
+        metrics=[
+            _slm_metric("context_precision"),
+            _slm_metric("faithfulness"),
+            _slm_metric("hallucination_rate"),
+        ],
     )
     from ai_eval.inference.slm.builder import _SLMTask
 
@@ -449,7 +478,7 @@ def test_build_slm_booking_tool_call(tmp_path: Path) -> None:
         purpose="Appointment booking with slot selection",
         inputs=["user_intent"],
         outputs=["booking_confirmation"],
-        metrics=[_slm_metric("slot_filling_accuracy"), _slm_metric("task_completion")],
+        metrics=[_slm_metric("task_completion"), _slm_metric("argument_accuracy")],
     )
     from ai_eval.inference.slm.builder import _SLMTask
 
@@ -464,11 +493,15 @@ def test_build_slm_booking_tool_call(tmp_path: Path) -> None:
 
 def test_build_slm_scoring_and_extraction(tmp_path: Path) -> None:
     _write_func(
-        tmp_path, "eval/score.py", "grade",
+        tmp_path,
+        "eval/score.py",
+        "grade",
         "return openai.chat.completions.create(model='gpt-4o')",
     )
     _write_func(
-        tmp_path, "extract/invoice.py", "parse",
+        tmp_path,
+        "extract/invoice.py",
+        "parse",
         "return openai.chat.completions.create(model='gpt-4o-mini', "
         "response_format={'type':'json_object'})",
     )
@@ -483,13 +516,13 @@ def test_build_slm_scoring_and_extraction(tmp_path: Path) -> None:
         _slm_task(
             type_="scoring",
             inputs=["question", "student_answer"],
-            metrics=[_slm_metric("scoring_accuracy")],
+            metrics=[_slm_metric("hallucination_rate")],
         ),
         _slm_task(
             type_="extraction",
             inputs=["document_text"],
             outputs=["vendor", "total"],
-            metrics=[_slm_metric("extraction_field_accuracy")],
+            metrics=[_slm_metric("argument_accuracy")],
         ),
     ]
     it = iter(responses)
@@ -507,7 +540,7 @@ def test_build_slm_respects_max_tasks_cap(tmp_path: Path) -> None:
     _write_func(tmp_path, "src/b.py", "f2", "return 2")
     _write_func(tmp_path, "src/c.py", "f3", "return 3")
     tasks = [
-        _task(name=f"f{i}", file_path=f"src/{'abc'[i-1]}.py", entry=f"f{i}", type_="chat")
+        _task(name=f"f{i}", file_path=f"src/{'abc'[i - 1]}.py", entry=f"f{i}", type_="chat")
         for i in range(1, 4)
     ]
     scan = _scan(tasks)
@@ -728,9 +761,7 @@ def test_validate_warns_on_rag_misclassification(tmp_path: Path) -> None:
 
     with w.catch_warnings(record=True) as caught:
         w.simplefilter("always")
-        rubrics, report = validate_against_scan(
-            rubrics, scan, project_root=tmp_path, warn=True
-        )
+        rubrics, report = validate_against_scan(rubrics, scan, project_root=tmp_path, warn=True)
     assert report.rag_misclassification_warnings
     assert any("resembles RAG" in str(m.message) for m in caught)
 
@@ -807,9 +838,7 @@ def test_build_slm_hard_fails_on_complete_error(tmp_path: Path) -> None:
         raise RuntimeError("ollama unreachable")
 
     with pytest.raises(RuntimeError):
-        build_rubrics_slm(
-            scan, project_root=tmp_path, model="ollama/test:1b", complete_fn=raising
-        )
+        build_rubrics_slm(scan, project_root=tmp_path, model="ollama/test:1b", complete_fn=raising)
 
 
 def test_rubric_engine_error_carries_remediation() -> None:
@@ -830,7 +859,9 @@ def test_empty_live_slm_falls_back_to_detector_evidence(tmp_path: Path) -> None:
     own evidence + default metrics so the rubric is never silently empty.
     The empty result must NOT be cached."""
     _write_func(
-        tmp_path, "services/chat.py", "chat_messages_chain",
+        tmp_path,
+        "services/chat.py",
+        "chat_messages_chain",
         "return openai.chat.completions.create(model='gpt-4o-mini', messages=messages)",
     )
     task = _task(
@@ -850,8 +881,11 @@ def test_empty_live_slm_falls_back_to_detector_evidence(tmp_path: Path) -> None:
     )
     cache = ResponseCache(tmp_path)
     rubrics, stats, _ = build_rubrics_slm(
-        scan, project_root=tmp_path, model="ollama/test:1b",
-        complete_fn=fake, cache=cache,
+        scan,
+        project_root=tmp_path,
+        model="ollama/test:1b",
+        complete_fn=fake,
+        cache=cache,
     )
     assert stats.slm_calls == 1
     spec = rubrics.tasks["chat_messages_chain"]
@@ -868,7 +902,9 @@ def test_stale_empty_cache_is_treated_as_a_miss(tmp_path: Path) -> None:
     SLM call is rejected (treated as a miss) and a fresh SLM call is made,
     rather than returning silently-empty rubrics forever."""
     _write_func(
-        tmp_path, "services/chat.py", "chat_messages_chain",
+        tmp_path,
+        "services/chat.py",
+        "chat_messages_chain",
         "return openai.chat.completions.create(model='gpt-4o-mini', messages=messages)",
     )
     task = _task(
@@ -894,8 +930,11 @@ def test_stale_empty_cache_is_treated_as_a_miss(tmp_path: Path) -> None:
 
     # First run: produces a good result and caches it.
     r1, s1, _ = build_rubrics_slm(
-        scan, project_root=tmp_path, model="ollama/test:1b",
-        complete_fn=fake, cache=cache,
+        scan,
+        project_root=tmp_path,
+        model="ollama/test:1b",
+        complete_fn=fake,
+        cache=cache,
     )
     assert s1.slm_calls == 1
     assert r1.tasks["chat_messages_chain"].inputs == ["messages"]
@@ -905,22 +944,26 @@ def test_stale_empty_cache_is_treated_as_a_miss(tmp_path: Path) -> None:
 
     ev = build_task_evidence(tmp_path, task, max_snippet_chars=1500)
     key = evidence_hash(
-        snippet=ev.snippet, framework_hints=sorted(ev.framework_hints),
-        enclosing_function=ev.enclosing_function, file_path=ev.file_path,
-        model="ollama/test:1b", template_name="classify_task",
+        snippet=ev.snippet,
+        framework_hints=sorted(ev.framework_hints),
+        enclosing_function=ev.enclosing_function,
+        file_path=ev.file_path,
+        model="ollama/test:1b",
+        template_name="classify_task",
     )
     (tmp_path / ".ai-evals" / "rubric_cache").mkdir(parents=True, exist_ok=True)
     (tmp_path / ".ai-evals" / "rubric_cache" / f"{key}.json").write_text(
-        json.dumps(
-            {"type": "chat", "inputs": [], "outputs": [], "metrics": [], "purpose": None}
-        ),
+        json.dumps({"type": "chat", "inputs": [], "outputs": [], "metrics": [], "purpose": None}),
         encoding="utf-8",
     )
 
     # Second run: stale empty entry is rejected → fresh SLM call → good result.
     r2, s2, _ = build_rubrics_slm(
-        scan, project_root=tmp_path, model="ollama/test:1b",
-        complete_fn=fake, cache=cache,
+        scan,
+        project_root=tmp_path,
+        model="ollama/test:1b",
+        complete_fn=fake,
+        cache=cache,
     )
     assert s2.slm_calls == 1  # re-ran the SLM despite a cache file existing
     assert r2.tasks["chat_messages_chain"].inputs == ["messages"]
@@ -932,7 +975,9 @@ def test_build_slm_pins_hint_task_type_over_slm(tmp_path: Path) -> None:
     outputs/metrics, but ``type`` is authoritative from the hint (plan Open
     Question 2)."""
     _write_func(
-        tmp_path, "services/wf.py", "run",
+        tmp_path,
+        "services/wf.py",
+        "run",
         "return temporal.execute(state)",  # no AST detector sees temporal
     )
     # Hint task: framework="hint", declared type="workflow".
@@ -973,7 +1018,9 @@ def test_build_slm_does_not_pin_non_hint_task_type(tmp_path: Path) -> None:
     """A regular AST-detected task (framework != 'hint') is NOT type-pinned —
     the SLM owns its type. Regression guard so the hint pin is scoped to hints."""
     _write_func(
-        tmp_path, "src/app.py", "handler",
+        tmp_path,
+        "src/app.py",
+        "handler",
         "return openai.chat.completions.create(model='gpt-4o-mini')",
     )
     task = _task(

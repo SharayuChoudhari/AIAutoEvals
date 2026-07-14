@@ -12,6 +12,7 @@ only warned. This keeps existing rubrics.yaml files loadable while making
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 from ai_eval.metrics.registry import get_judge_metric
@@ -23,14 +24,16 @@ class MetricNotImplementedError(Exception):
     """Raised at run time when a rubrics.yaml metric has no implementation."""
 
     def __init__(self, name: str) -> None:
-        super().__init__(
-            f"metric {name!r} has no judge implementation; `run` cannot compute it"
-        )
+        super().__init__(f"metric {name!r} has no judge implementation; `run` cannot compute it")
         self.name = name
-        self.why = "the metric is not in the built-in judge set and no plugin registered it"
+        self.why = (
+            "the metric is not in the built-in judge set, not in the project's "
+            "eval/metrics.yaml, and no plugin registered it"
+        )
         self.fix = (
-            f"register {name!r} via the 'ai_eval.metrics' entry-point group, "
-            f"add a prompt builder, or remove it from rubrics.yaml"
+            f"add {name!r} to eval/metrics.yaml with a prompt_template (see "
+            f"docs/metrics.md for a template), register it via the "
+            f"'ai_eval.metrics' entry-point group, or remove it from rubrics.yaml"
         )
 
 
@@ -74,15 +77,17 @@ def evaluate_metric(
         regressed = True
 
     status: ThresholdStatus = "fail" if (not threshold_ok or regressed) else "pass"
-    return ThresholdEval(
-        score=score, delta=delta, threshold=threshold, status=status
-    )
+    return ThresholdEval(score=score, delta=delta, threshold=threshold, status=status)
 
 
-def assert_metric_implemented(name: str) -> Any:
+def assert_metric_implemented(name: str, project_root: Path | None = None) -> Any:
     """Run-time strict gate. Raises :class:`MetricNotImplementedError` if the
-    metric has no judge implementation."""
-    m = get_judge_metric(name)
+    metric has no judge implementation.
+
+    ``project_root`` enables resolution of project-local ``eval/metrics.yaml``
+    metrics; ``None`` falls back to built-ins + plugins only.
+    """
+    m = get_judge_metric(name, project_root=project_root)
     if m is None:
         raise MetricNotImplementedError(name)
     return m

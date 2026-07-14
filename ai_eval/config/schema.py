@@ -131,9 +131,7 @@ class HintTaskSpec(BaseModel):
     @classmethod
     def _validate_name(cls, v: str) -> str:
         if not v or not v.replace("_", "").isalnum():
-            raise ValueError(
-                f"hint task name {v!r} must be snake_case alphanumeric"
-            )
+            raise ValueError(f"hint task name {v!r} must be snake_case alphanumeric")
         return v
 
 
@@ -166,6 +164,13 @@ class TaskSpec(BaseModel):
     metrics: list[MetricSpec] = Field(default_factory=list)
     judge_overrides: TaskJudgeOverrides | None = None
     redact: list[str] = Field(default_factory=list)
+    #: When ``True`` (default), this task is a public top-level entry that
+    #: represents the complete job the user cares about — auto-seeded and run
+    #: by ``ai-evals run``. When ``False`` (internal DAOs/services, private
+    #: methods, IO-coupled sub-workflows), the task is scaffolded into
+    #: rubrics.yaml but skipped by auto-seed/run with a notice directing the
+    #: user to ``ai-evals bootstrap`` for trustworthy baselines (AGENTS.md §1).
+    top_level: bool = True
 
 
 class RubricsConfig(BaseModel):
@@ -187,9 +192,7 @@ class RubricsConfig(BaseModel):
     def _validate_task_names(cls, v: dict[str, TaskSpec]) -> dict[str, TaskSpec]:
         for name in v:
             if not name or not name.replace("_", "").isalnum():
-                raise ValueError(
-                    f"task name {name!r} must be snake_case alphanumeric"
-                )
+                raise ValueError(f"task name {name!r} must be snake_case alphanumeric")
         return v
 
 

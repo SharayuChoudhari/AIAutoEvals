@@ -18,6 +18,7 @@ import asyncio
 import hashlib
 import importlib
 import importlib.util
+import inspect
 import json
 import sys
 import time
@@ -40,9 +41,7 @@ from ai_eval.runner.thresholds import assert_metric_implemented, evaluate_metric
 
 
 def config_hash(rubrics: RubricsConfig) -> str:
-    payload = json.dumps(
-        rubrics.model_dump(mode="json"), sort_keys=True, ensure_ascii=False
-    )
+    payload = json.dumps(rubrics.model_dump(mode="json"), sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
@@ -63,7 +62,26 @@ class _Stub:
         return _Stub()
 
 
-def _fake_call_args(sig) -> tuple[tuple, dict]:
+def _placeholder_for(param: inspect.Parameter) -> Any:
+    """Fabricate a plausible value for one required (no-default) param.
+
+    Primitives map to their zero value; everything else (unknown annotations,
+    class-typed params, unannotated) gets a permissive ``_Stub`` so method
+    bodies that touch ``config.x`` / ``session.add(...)`` don't raise.
+    """
+    ann = param.annotation
+    if ann is int:
+        return 0
+    if ann is float:
+        return 0.0
+    if ann is bool:
+        return False
+    if ann is str:
+        return ""
+    return _Stub()
+
+
+def _fake_call_args(sig: inspect.Signature) -> tuple[tuple, dict]:
     """Build plausible positional + keyword args for a callable from its
     inspect.Signature: primitives default to ``""``/``0``/``0.0``/``False``,
     required non-primitive params get a ``_Stub`` (so ``__init__`` / method
@@ -73,8 +91,6 @@ def _fake_call_args(sig) -> tuple[tuple, dict]:
     dotted ``Class.method`` entries (pure-LLM path; IO-coupled tasks get the
     harness monkey-patches installed first).
     """
-    import inspect
-
     args: list = []
     kwargs: dict = {}
     for param in sig.parameters.values():
@@ -89,20 +105,86 @@ def _fake_call_args(sig) -> tuple[tuple, dict]:
         if param.default is not inspect.Parameter.empty:
             # Has a real default — let it apply.
             continue
-        # No default: fabricate a primitive placeholder, or a permissive
-        # _Stub for non-primitive / unannotated required params (Bug 3).
-        ann = param.annotation
-        if ann is int:
-            args.append(0)
-        elif ann is float:
-            args.append(0.0)
-        elif ann is bool:
-            args.append(False)
-        elif ann is str:
-            args.append("")
-        else:
-            args.append(_Stub())
+        args.append(_placeholder_for(param))
     return tuple(args), kwargs
+
+
+def _build_call_args(fn, input_: Any) -> tuple[tuple, dict]:
+    """Build ``(args, kwargs)`` to call ``fn`` with ``input_``.
+
+    Signature-aware so the auto-seed convention (a scalar string input) works
+    for entries of any arity:
+
+    * ``input_`` is a ``dict``  → unpacked as kwargs (rich/golden-set case).
+    * ``input_`` is a ``list``/``tuple`` → unpacked as positional args.
+    * ``input_`` is a scalar (the D6 auto-seed case) → inspect ``fn``'s
+      signature: map the scalar onto the first str-typed required param (or
+      the first required param if none is str-typed), and fabricate
+      placeholders for the remaining required params. Params with defaults are
+      left to apply. If the signature can't be introspected (builtins/C
+      callables) the scalar is passed as a single positional arg (legacy
+      fast path).
+
+    This is what makes ``evaluate_single(self, question, retrieved_contexts,
+    answer)`` and ``_create_workflow(self)`` callable from a ``""`` auto-seed
+    without ``TypeError: missing N required positional arguments``.
+    """
+    if isinstance(input_, dict):
+        return (), dict(input_)
+    if isinstance(input_, (list, tuple)):
+        return tuple(input_), {}
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return (input_,), {}
+
+    params = list(sig.parameters.values())
+    # User-supplied positional-or-keyword params (skip self, *args, **kwargs).
+    slots: list[inspect.Parameter] = []
+    for p in params:
+        if p.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
+            continue
+        if p.name == "self":
+            continue
+        slots.append(p)
+
+    if not slots:
+        # No user params (e.g. ``_create_workflow(self)``) — don't pass the
+        # scalar; calling ``fn("")`` would raise "too many positional args".
+        return (), {}
+
+    # Required params (no default) are the ones we must fill. Decide which of
+    # them the scalar binds to: the first str-typed required param if any
+    # (mirrors the auto-seed "single string input" intent), else the first
+    # required param. The remaining required params get fabricated placeholders;
+    # params with defaults are left to apply (not appended positionally, so
+    # Python fills them — but we must still append placeholders for required
+    # params that come *after* a defaulted one to keep positional order valid).
+    required = [p for p in slots if p.default is inspect.Parameter.empty]
+    scalar_idx = -1
+    if required:
+        scalar_idx = next(
+            (i for i, p in enumerate(required) if p.annotation is str),
+            0,
+        )
+
+    args: list = []
+    filled_required = 0
+    for p in slots:
+        if p.default is not inspect.Parameter.empty:
+            # Once we hit a defaulted param, stop appending — any later
+            # required params would be a Python-level signature error anyway
+            # (required-after-default is invalid), so this is safe.
+            break
+        if filled_required == scalar_idx:
+            args.append(input_)
+        else:
+            args.append(_placeholder_for(p))
+        filled_required += 1
+    return tuple(args), {}
 
 
 def _ensure_task_on_syspath(file_path: Path, cwd: Path) -> None:
@@ -136,7 +218,7 @@ def _load_harness(task_name: str, cwd: Path, file_path: Path) -> bool:
 
     _ensure_task_on_syspath(file_path, cwd)
     safe = re.sub(r"[^0-9a-zA-Z_]", "_", task_name)
-    harness_path = (cwd / "eval" / f"_harness_{safe}.py")
+    harness_path = cwd / "eval" / f"_harness_{safe}.py"
     if not harness_path.is_file():
         return False
     # Include the cwd in the module name so different repos (same task name)
@@ -207,7 +289,6 @@ def _import_entry(task_spec: TaskSpec, cwd: Path):
         cls = getattr(mod, cls_name, None)
         if cls is None:
             raise AttributeError(f"class {cls_name!r} not found in {file_path}")
-        import inspect
 
         try:
             sig = inspect.signature(cls.__init__)
@@ -219,9 +300,7 @@ def _import_entry(task_spec: TaskSpec, cwd: Path):
             instance = cls()
         fn = getattr(instance, method_name, None)
         if fn is None:
-            raise AttributeError(
-                f"method {method_name!r} not found on {cls_name!r} in {file_path}"
-            )
+            raise AttributeError(f"method {method_name!r} not found on {cls_name!r} in {file_path}")
         return fn
     fn = getattr(mod, entry, None)
     if fn is None:
@@ -232,19 +311,18 @@ def _import_entry(task_spec: TaskSpec, cwd: Path):
 def _call_entry(fn, input_: Any):
     """Call the task entry symbol with ``input_``.
 
-    ``input_`` may be a dict (→ unpacked as kwargs), a list/tuple (→ *args),
-    or a scalar (→ single positional arg). Handles ``async def`` entries by
-    running them in a dedicated event loop (the handover flagged returning a
-    raw coroutine as a silent garbage-score failure).
-    """
-    import inspect
+    Signature-aware (see :func:`_build_call_args`): a scalar auto-seed input is
+    mapped onto the entry's first suitable required param, with placeholders
+    fabricated for the remaining required params, so entries of any arity
+    (zero-arg, single-arg, multi-arg) run without ``TypeError``. A ``dict``
+    input is unpacked as kwargs; a ``list``/``tuple`` as positional args.
 
-    if isinstance(input_, dict):
-        result = fn(**input_)
-    elif isinstance(input_, (list, tuple)):
-        result = fn(*input_)
-    else:
-        result = fn(input_)
+    Handles ``async def`` entries by running them in a dedicated event loop
+    (the handover flagged returning a raw coroutine as a silent garbage-score
+    failure).
+    """
+    args, kwargs = _build_call_args(fn, input_)
+    result = fn(*args, **kwargs)
     # Async entries return a coroutine — await it in a fresh loop. This runs
     # inside asyncio.to_thread (a worker thread), so a nested event loop is
     # safe here (the outer loop is on the main thread).
@@ -292,9 +370,7 @@ async def execute(
     default_model = judge_override or rubrics.judge.default
     fallback = tuple(rubrics.judge.fallback)
     complex_models = (
-        tuple(rubrics.judge.tiering.complex_models)
-        if rubrics.judge.tiering is not None
-        else None
+        tuple(rubrics.judge.tiering.complex_models) if rubrics.judge.tiering is not None else None
     )
 
     task_names = list(rubrics.tasks.keys())
@@ -303,12 +379,26 @@ async def execute(
 
     for tname in task_names:
         tspec = rubrics.tasks[tname]
-        examples = golden_set.get(tname, [])
         record = TaskRecord()
+        # Non-top-level tasks (internal DAOs/services, private methods,
+        # IO-coupled sub-workflows) are skipped by design (AGENTS.md §1):
+        # scaffolded into rubrics.yaml but not auto-seeded/run. Record a
+        # task-level notice directing the user to `ai-evals bootstrap`.
+        if not tspec.top_level:
+            record.errors.append(
+                f"{tname}: skipped (non-top-level internal task); "
+                f"run `ai-evals bootstrap` for trustworthy baselines"
+            )
+            tasks_out[tname] = record
+            continue
+        examples = golden_set.get(tname, [])
         # Validate all metrics are implemented up-front (run-time strict gate).
+        # ``project_root`` resolves project-local ``eval/metrics.yaml`` metrics.
         metric_impls = {}
         for mspec in tspec.metrics:
-            metric_impls[mspec.name] = assert_metric_implemented(mspec.name)
+            metric_impls[mspec.name] = assert_metric_implemented(
+                mspec.name, project_root=project_root
+            )
 
         latencies: list[float] = []
 
@@ -327,9 +417,7 @@ async def execute(
                     metric_impls=metric_impls,
                 )
 
-        results = await asyncio.gather(
-            *(run_one(ex) for ex in examples), return_exceptions=True
-        )
+        results = await asyncio.gather(*(run_one(ex) for ex in examples), return_exceptions=True)
         for idx, res in enumerate(results):
             ex = examples[idx] if idx < len(examples) else {}
             ex_id = ex.get("id") or f"{tname}_{idx}"
@@ -337,7 +425,9 @@ async def execute(
                 record.errors.append(f"{ex_id}: {type(res).__name__}: {res}")
                 record.examples.append(
                     ExampleRecord(
-                        id=ex_id, status="error", error=str(res),
+                        id=ex_id,
+                        status="error",
+                        error=str(res),
                         seed=ex.get("seed"),
                     )
                 )
@@ -369,7 +459,8 @@ async def execute(
         summary=summary,
         tags=list(tags or []),
         extras={
-            "parallel": parallel, "cache_on": cache_on,
+            "parallel": parallel,
+            "cache_on": cache_on,
             "cache_stats": {"hits": cache.stats.hits, "misses": cache.stats.misses},
         },
     )
@@ -409,7 +500,8 @@ async def _run_example(
         output = await asyncio.to_thread(_call_entry, fn, input_)
     except Exception as exc:
         return ExampleRecord(
-            id=ex_id, status="error",
+            id=ex_id,
+            status="error",
             latency_ms=(time.perf_counter() - t0) * 1000.0,
             error=f"{type(exc).__name__}: {exc}",
             seed=seed,
@@ -425,8 +517,11 @@ async def _run_example(
         if getattr(impl, "non_judge", False):
             continue  # latency computed separately
         request = JudgeRequest(
-            task_name=tname, task_type=tspec.type,
-            metric=mspec.name, example=example, output=output,
+            task_name=tname,
+            task_type=tspec.type,
+            metric=mspec.name,
+            example=example,
+            output=output,
         )
         try:
             messages = impl.prompt_builder(tspec, example, output)  # type: ignore[arg-type]
@@ -490,11 +585,7 @@ def _aggregate_metrics(
         if isinstance(bm, dict):
             base_metrics = bm
     for mspec in tspec.metrics:
-        scores = [
-            e.metric_scores[mspec.name]
-            for e in examples
-            if mspec.name in e.metric_scores
-        ]
+        scores = [e.metric_scores[mspec.name] for e in examples if mspec.name in e.metric_scores]
         if mspec.name in ("latency_p50", "latency_p95"):
             # latency computed by engine; placeholder result for display
             out[mspec.name] = MetricResult(

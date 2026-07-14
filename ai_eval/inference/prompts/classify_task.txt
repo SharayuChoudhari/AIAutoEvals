@@ -11,7 +11,7 @@ Classify the task by:
 - type: an open string from this suggested vocabulary: chat, rag, agent, tool_calling, scoring, extraction, classification, summarization, translation, booking, workflow, other.
 - inputs: list of input field names the function/chain consumes.
 - outputs: list of output field names it produces.
-- metrics: 1-3 metric names, chosen ONLY from the provided registry list. Pick metrics that actually fit the task semantics (e.g. faithfulness for RAG, argument_accuracy for tool-calling, slot_filling_accuracy for booking).
+- metrics: 1-3 metric names, chosen ONLY from the provided registry list. Pick metrics that actually fit the task semantics (e.g. faithfulness for RAG, argument_accuracy for tool-calling, task_completion for booking).
 
 Be conservative: prefer fewer metrics that clearly fit over many loosely-related ones.
 

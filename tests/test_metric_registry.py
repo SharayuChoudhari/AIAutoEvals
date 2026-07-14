@@ -49,6 +49,7 @@ def _reset_metrics_cache():
 # Built-in registry contents
 # ---------------------------------------------------------------------------
 
+
 def test_builtin_metrics_include_legacy_four() -> None:
     names = {m.name for m in registry.BUILTIN_METRICS}
     # The 4 metrics the rule engine already emits must stay registered so both
@@ -61,18 +62,31 @@ def test_builtin_metrics_include_legacy_four() -> None:
     } <= names
 
 
-def test_builtin_metrics_include_new_task_types() -> None:
+def test_builtin_metrics_are_high_frequency_set_only() -> None:
     names = {m.name for m in registry.BUILTIN_METRICS}
-    # New metrics for the open task_type vocabulary.
-    assert {
-        "scoring_accuracy",
-        "extraction_field_accuracy",
-        "classification_f1",
-        "summary_faithfulness",
-        "translation_bleu",
+    # The high-frequency built-in set (registry split, AGENTS.md §2).
+    assert names == {
+        "hallucination_rate",
+        "context_precision",
+        "faithfulness",
+        "argument_accuracy",
         "task_completion",
+    }
+
+
+def test_builtin_metrics_exclude_niche_metrics() -> None:
+    """Niche metrics were removed from built-ins; they live in
+    eval/metrics.yaml now (see docs/metrics.md)."""
+    names = {m.name for m in registry.BUILTIN_METRICS}
+    for niche in (
         "slot_filling_accuracy",
-    } <= names
+        "translation_bleu",
+        "classification_f1",
+        "extraction_field_accuracy",
+        "scoring_accuracy",
+        "summary_faithfulness",
+    ):
+        assert niche not in names
 
 
 def test_all_names_includes_builtins_and_judge_metrics() -> None:
@@ -106,6 +120,7 @@ def test_builtin_metrics_have_unique_names() -> None:
 # ---------------------------------------------------------------------------
 # Entry-point plugin loading
 # ---------------------------------------------------------------------------
+
 
 class _FakeEP:
     """Minimal stand-in for importlib.metadata.EntryPoint."""
@@ -171,9 +186,7 @@ def test_plugin_failure_is_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_plugin_does_not_shadow_builtin(monkeypatch: pytest.MonkeyPatch) -> None:
     """A plugin re-declaring a builtin name is ignored — builtins win."""
-    impostor = registry.Metric(
-        name="faithfulness", description="impostor", default_threshold=0.0
-    )
+    impostor = registry.Metric(name="faithfulness", description="impostor", default_threshold=0.0)
     _patch_entry_points(monkeypatch, [_FakeEP("faithfulness", impostor)])
     m = registry.get("faithfulness")
     assert m is not None
@@ -183,6 +196,7 @@ def test_plugin_does_not_shadow_builtin(monkeypatch: pytest.MonkeyPatch) -> None
 # ---------------------------------------------------------------------------
 # MetricSpec schema validation
 # ---------------------------------------------------------------------------
+
 
 def test_metricspec_accepts_registered_name() -> None:
     # Should not raise.
@@ -199,8 +213,7 @@ def test_metricspec_warns_on_unknown_name_by_default(
         spec = MetricSpec(name="unregistered_metric_xyz")
     assert spec.name == "unregistered_metric_xyz"
     assert any(
-        issubclass(w.category, DeprecationWarning)
-        and "unregistered_metric_xyz" in str(w.message)
+        issubclass(w.category, DeprecationWarning) and "unregistered_metric_xyz" in str(w.message)
         for w in caught
     ), "expected a DeprecationWarning for the unknown metric"
 
@@ -214,4 +227,3 @@ def test_metricspec_rejects_unknown_name_in_strict_mode(
     with pytest.raises(ValidationError) as excinfo:
         MetricSpec(name="unregistered_metric_xyz")
     assert "not registered" in str(excinfo.value)
-

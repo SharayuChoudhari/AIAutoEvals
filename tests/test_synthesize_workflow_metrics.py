@@ -17,10 +17,13 @@ def _scan(tasks: list[DetectedTask]) -> ScanResult:
     )
 
 
-def test_default_metrics_workflow_has_two_native_metrics() -> None:
+def test_default_metrics_workflow_has_task_completion_only() -> None:
+    """slot_filling_accuracy was removed from built-ins (registry split);
+    workflow defaults to task_completion only. Users add slot_filling_accuracy
+    via eval/metrics.yaml when needed (see docs/metrics.md)."""
     metrics = _DEFAULT_METRICS["workflow"]
     names = [m.name for m in metrics]
-    assert names == ["task_completion", "slot_filling_accuracy"]
+    assert names == ["task_completion"]
     for m in metrics:
         assert m.threshold == 0.9
         assert m.weight == 1.0
@@ -35,25 +38,36 @@ def test_default_metrics_workflow_excludes_cross_applicable() -> None:
     assert "hallucination_rate" not in names
 
 
-def test_workflow_task_gets_workflow_metrics() -> None:
-    scan = _scan([
-        DetectedTask(
-            name="run_wf", framework="openai", type="workflow",
-            file_path="wf.py", entry="run",
-        )
-    ])
+def test_workflow_task_gets_task_completion_metric() -> None:
+    scan = _scan(
+        [
+            DetectedTask(
+                name="run_wf",
+                framework="openai",
+                type="workflow",
+                file_path="wf.py",
+                entry="run",
+            )
+        ]
+    )
     rubrics = build_rubrics(scan)
     spec = rubrics.tasks["run_wf"]
     assert spec.type == "workflow"
     metrics = {m.name for m in spec.metrics}
-    assert metrics == {"task_completion", "slot_filling_accuracy"}
+    assert metrics == {"task_completion"}
 
 
 def test_all_workflow_repo_classifies_to_workflow_project_type() -> None:
-    scan = _scan([
-        DetectedTask(name="a", framework="openai", type="workflow", file_path="a.py", entry="a"),
-        DetectedTask(name="b", framework="langgraph", type="workflow", file_path="b.py", entry="b"),
-    ])
+    scan = _scan(
+        [
+            DetectedTask(
+                name="a", framework="openai", type="workflow", file_path="a.py", entry="a"
+            ),
+            DetectedTask(
+                name="b", framework="langgraph", type="workflow", file_path="b.py", entry="b"
+            ),
+        ]
+    )
     rubrics = build_rubrics(scan)
     assert rubrics.project_type == "workflow"
 
@@ -61,30 +75,45 @@ def test_all_workflow_repo_classifies_to_workflow_project_type() -> None:
 def test_workflow_plus_tool_calling_classifies_to_tool_calling() -> None:
     """Mixed repo: workflow + plain tool_calling keeps the dominant tool label
     (workflow doesn't override a tool-heavy repo)."""
-    scan = _scan([
-        DetectedTask(
-            name="wf", framework="openai", type="workflow",
-            file_path="wf.py", entry="wf",
-        ),
-        DetectedTask(
-            name="t1", framework="openai", type="tool_calling",
-            file_path="t.py", entry="t1",
-        ),
-        DetectedTask(
-            name="t2", framework="openai", type="tool_calling",
-            file_path="t.py", entry="t2",
-        ),
-    ])
+    scan = _scan(
+        [
+            DetectedTask(
+                name="wf",
+                framework="openai",
+                type="workflow",
+                file_path="wf.py",
+                entry="wf",
+            ),
+            DetectedTask(
+                name="t1",
+                framework="openai",
+                type="tool_calling",
+                file_path="t.py",
+                entry="t1",
+            ),
+            DetectedTask(
+                name="t2",
+                framework="openai",
+                type="tool_calling",
+                file_path="t.py",
+                entry="t2",
+            ),
+        ]
+    )
     rubrics = build_rubrics(scan)
     assert rubrics.project_type == "tool_calling"
 
 
 def test_workflow_plus_rag_classifies_to_rag_and_tools() -> None:
     """Workflow is tool-bearing, so workflow+rag → rag_and_tools."""
-    scan = _scan([
-        DetectedTask(name="wf", framework="openai", type="workflow", file_path="wf.py", entry="wf"),
-        DetectedTask(name="r", framework="langchain", type="rag", file_path="r.py", entry="r"),
-    ])
+    scan = _scan(
+        [
+            DetectedTask(
+                name="wf", framework="openai", type="workflow", file_path="wf.py", entry="wf"
+            ),
+            DetectedTask(name="r", framework="langchain", type="rag", file_path="r.py", entry="r"),
+        ]
+    )
     rubrics = build_rubrics(scan)
     assert rubrics.project_type == "rag_and_tools"
 
@@ -94,17 +123,19 @@ def test_dotted_entry_produces_snake_case_key_but_dotted_entry_field() -> None:
     must produce a schema-valid snake_case rubrics key while keeping the
     resolvable dotted form in ``TaskSpec.entry``. The ``RubricsConfig`` key
     validator rejects names containing ``.``."""
-    scan = _scan([
-        DetectedTask(
-            name="ChatMessageService.process_query",
-            framework="langgraph",
-            type="rag",
-            file_path="services/chat_messages.py",
-            entry="ChatMessageService.process_query",
-            inputs=["query"],
-            outputs=["documents"],
-        ),
-    ])
+    scan = _scan(
+        [
+            DetectedTask(
+                name="ChatMessageService.process_query",
+                framework="langgraph",
+                type="rag",
+                file_path="services/chat_messages.py",
+                entry="ChatMessageService.process_query",
+                inputs=["query"],
+                outputs=["documents"],
+            ),
+        ]
+    )
     rubrics = build_rubrics(scan)
     assert set(rubrics.tasks) == {"chat_message_service_process_query"}
     spec = rubrics.tasks["chat_message_service_process_query"]
@@ -114,15 +145,17 @@ def test_dotted_entry_produces_snake_case_key_but_dotted_entry_field() -> None:
 def test_dotted_private_method_entry_strips_leading_underscore_in_key() -> None:
     """``Class._private`` entries collapse to ``class_private`` keys (the
     leading underscore is dropped so the key doesn't begin with ``_``)."""
-    scan = _scan([
-        DetectedTask(
-            name="ConversationWorkflowService._call_model",
-            framework="openai",
-            type="workflow",
-            file_path="svc.py",
-            entry="ConversationWorkflowService._call_model",
-        ),
-    ])
+    scan = _scan(
+        [
+            DetectedTask(
+                name="ConversationWorkflowService._call_model",
+                framework="openai",
+                type="workflow",
+                file_path="svc.py",
+                entry="ConversationWorkflowService._call_model",
+            ),
+        ]
+    )
     rubrics = build_rubrics(scan)
     assert set(rubrics.tasks) == {"conversation_workflow_service_call_model"}
     assert rubrics.tasks["conversation_workflow_service_call_model"].entry == (
@@ -133,15 +166,17 @@ def test_dotted_private_method_entry_strips_leading_underscore_in_key() -> None:
 def test_bare_module_entry_keeps_its_name_as_key() -> None:
     """Module-level functions (no dot in entry) keep their bare name as the
     rubrics key — no transformation applied."""
-    scan = _scan([
-        DetectedTask(
-            name="summarize",
-            framework="openai",
-            type="chat",
-            file_path="summarize.py",
-            entry="summarize",
-        ),
-    ])
+    scan = _scan(
+        [
+            DetectedTask(
+                name="summarize",
+                framework="openai",
+                type="chat",
+                file_path="summarize.py",
+                entry="summarize",
+            ),
+        ]
+    )
     rubrics = build_rubrics(scan)
     assert set(rubrics.tasks) == {"summarize"}
     assert rubrics.tasks["summarize"].entry == "summarize"

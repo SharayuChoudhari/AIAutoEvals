@@ -6,8 +6,8 @@ import ast
 from pathlib import Path
 
 from ai_eval.config.schema import JudgeConfig, RubricsConfig, TaskSpec
-from ai_eval.inference.callgraph import build_call_graph
 from ai_eval.inference.ast_scan import ScanResult
+from ai_eval.inference.callgraph import build_call_graph
 from ai_eval.inference.detectors.base import DetectedTask
 from ai_eval.scaffold.harness_writer import (
     HarnessSpec,
@@ -29,8 +29,10 @@ def _rubrics(tasks: dict[str, TaskSpec]) -> RubricsConfig:
 
 def _contexts(root: Path, tasks: list[DetectedTask]) -> dict:
     scan = ScanResult(
-        files_scanned=len(tasks), elapsed_seconds=0.0,
-        tasks=tasks, frameworks_seen=set(),
+        files_scanned=len(tasks),
+        elapsed_seconds=0.0,
+        tasks=tasks,
+        frameworks_seen=set(),
     )
     _, ctx = build_call_graph(root, scan)
     return ctx
@@ -39,6 +41,7 @@ def _contexts(root: Path, tasks: list[DetectedTask]) -> dict:
 # ---------------------------------------------------------------------------
 # D4 classification
 # ---------------------------------------------------------------------------
+
 
 def test_io_coupled_classifies_dao_read(tmp_path: Path) -> None:
     """A method reading ``self.dao.search(...)`` where ``self.dao`` is assigned
@@ -55,8 +58,13 @@ def test_io_coupled_classifies_dao_read(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     task = TaskSpec(file_path="svc.py", entry="Svc.process", type="chat")
-    task_dt = DetectedTask(name="svc_process", framework="unknown", type="chat",
-                           file_path="svc.py", entry="Svc.process")
+    task_dt = DetectedTask(
+        name="svc_process",
+        framework="unknown",
+        type="chat",
+        file_path="svc.py",
+        entry="Svc.process",
+    )
     ctx = _contexts(tmp_path, [task_dt])
     attrs = classify_io_coupled(task, ctx)
     assert len(attrs) == 1
@@ -75,8 +83,13 @@ def test_pure_llm_no_self_attr_read_is_not_io_coupled(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     task = TaskSpec(file_path="summarize.py", entry="summarize", type="chat")
-    task_dt = DetectedTask(name="summarize", framework="unknown", type="chat",
-                           file_path="summarize.py", entry="summarize")
+    task_dt = DetectedTask(
+        name="summarize",
+        framework="unknown",
+        type="chat",
+        file_path="summarize.py",
+        entry="summarize",
+    )
     ctx = _contexts(tmp_path, [task_dt])
     assert classify_io_coupled(task, ctx) == []
 
@@ -97,8 +110,13 @@ def test_llm_client_attr_not_stubbed(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     task = TaskSpec(file_path="svc.py", entry="Svc.process", type="chat")
-    task_dt = DetectedTask(name="svc_process", framework="unknown", type="chat",
-                           file_path="svc.py", entry="Svc.process")
+    task_dt = DetectedTask(
+        name="svc_process",
+        framework="unknown",
+        type="chat",
+        file_path="svc.py",
+        entry="Svc.process",
+    )
     ctx = _contexts(tmp_path, [task_dt])
     attrs = classify_io_coupled(task, ctx)
     # Only dao.search; the OpenAI client read is not a stub target.
@@ -118,8 +136,9 @@ def test_graph_object_attr_not_stubbed(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     task = TaskSpec(file_path="wf.py", entry="WF.run", type="workflow")
-    task_dt = DetectedTask(name="wf_run", framework="unknown", type="workflow",
-                           file_path="wf.py", entry="WF.run")
+    task_dt = DetectedTask(
+        name="wf_run", framework="unknown", type="workflow", file_path="wf.py", entry="WF.run"
+    )
     ctx = _contexts(tmp_path, [task_dt])
     assert classify_io_coupled(task, ctx) == []
 
@@ -128,9 +147,12 @@ def test_graph_object_attr_not_stubbed(tmp_path: Path) -> None:
 # D5 harness codegen
 # ---------------------------------------------------------------------------
 
+
 def test_render_harness_parses_and_has_regions() -> None:
     spec = HarnessSpec(
-        task_name="svc_process", entry="Svc.process", file_path="svc.py",
+        task_name="svc_process",
+        entry="Svc.process",
+        file_path="svc.py",
         attrs=[IOAttr(attr="dao", method="search", ctor_name="DAO")],
         body_hash="abc123def456",
     )
@@ -153,9 +175,11 @@ def test_write_harnesses_creates_file_for_io_coupled_task(tmp_path: Path) -> Non
         encoding="utf-8",
     )
     eval_dir = tmp_path / "eval"
-    rubrics = _rubrics({
-        "svc_process": TaskSpec(file_path="svc.py", entry="Svc.process", type="chat"),
-    })
+    rubrics = _rubrics(
+        {
+            "svc_process": TaskSpec(file_path="svc.py", entry="Svc.process", type="chat"),
+        }
+    )
     written, _ = write_harnesses(rubrics, eval_dir, project_root=tmp_path)
     assert any(status == "wrote" for _, status in written)
     harness_path = eval_dir / "_harness_svc_process.py"
@@ -173,9 +197,11 @@ def test_write_harnesses_skips_pure_llm_task(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     eval_dir = tmp_path / "eval"
-    rubrics = _rubrics({
-        "summarize": TaskSpec(file_path="summarize.py", entry="summarize", type="chat"),
-    })
+    rubrics = _rubrics(
+        {
+            "summarize": TaskSpec(file_path="summarize.py", entry="summarize", type="chat"),
+        }
+    )
     written, _ = write_harnesses(rubrics, eval_dir, project_root=tmp_path)
     # No harness file generated for pure-LLM task.
     assert written == []
@@ -195,9 +221,11 @@ def test_write_harnesses_preserves_region2_on_regen(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     eval_dir = tmp_path / "eval"
-    rubrics = _rubrics({
-        "svc_process": TaskSpec(file_path="svc.py", entry="Svc.process", type="chat"),
-    })
+    rubrics = _rubrics(
+        {
+            "svc_process": TaskSpec(file_path="svc.py", entry="Svc.process", type="chat"),
+        }
+    )
     write_harnesses(rubrics, eval_dir, project_root=tmp_path)
     harness_path = eval_dir / "_harness_svc_process.py"
     # User edits region 2 fixtures.
@@ -236,9 +264,11 @@ def test_write_harnesses_skips_when_hash_unchanged(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     eval_dir = tmp_path / "eval"
-    rubrics = _rubrics({
-        "svc_process": TaskSpec(file_path="svc.py", entry="Svc.process", type="chat"),
-    })
+    rubrics = _rubrics(
+        {
+            "svc_process": TaskSpec(file_path="svc.py", entry="Svc.process", type="chat"),
+        }
+    )
     write_harnesses(rubrics, eval_dir, project_root=tmp_path)
     harness_path = eval_dir / "_harness_svc_process.py"
     mtime_before = harness_path.stat().st_mtime_ns

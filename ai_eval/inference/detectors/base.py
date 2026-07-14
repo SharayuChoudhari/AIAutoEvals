@@ -24,7 +24,14 @@ from ai_eval.inference.signatures import ImportInfo
 
 @dataclass
 class DetectedTask:
-    """A candidate task extracted from one module."""
+    """A candidate task extracted from one module.
+
+    ``top_level`` marks whether this is a public top-level entry (the complete
+    job the user cares about) vs an internal method (DAO, service, private
+    ``_``-prefixed). The detector sets it; synthesize propagates it to
+    :class:`~ai_eval.config.schema.TaskSpec.top_level`; the seeder and runner
+    honor it (non-top-level tasks are scaffolded but skipped by auto-seed/run).
+    """
 
     name: str
     framework: str
@@ -34,6 +41,7 @@ class DetectedTask:
     inputs: list[str] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)
     evidence: list[str] = field(default_factory=list)
+    top_level: bool = True
 
 
 class Detector(ABC):

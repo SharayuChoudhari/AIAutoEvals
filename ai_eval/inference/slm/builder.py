@@ -135,19 +135,14 @@ def _is_empty_classification(slm: _SLMTask) -> bool:
     hash; this guard rejects it so we never persist (or trust) an empty
     classification.
     """
-    return (
-        not slm.inputs
-        and not slm.outputs
-        and not slm.metrics
-        and not slm.purpose
-    )
+    return not slm.inputs and not slm.outputs and not slm.metrics and not slm.purpose
 
 
 def _fallback_task_spec(task: DetectedTask) -> TaskSpec:
     """Build a TaskSpec from the detector's own evidence when the SLM
     classification is unusable. Reuses the rule engine's default metric set
     for the detector-classified type so the rubric is never silently empty."""
-    from ai_eval.inference.synthesize import _DEFAULT_METRICS
+    from ai_eval.inference.synthesize import _DEFAULT_METRICS, _is_private_entry
 
     task_type = task.type
     metrics = list(_DEFAULT_METRICS.get(task_type, _DEFAULT_METRICS["chat"]))
@@ -159,21 +154,26 @@ def _fallback_task_spec(task: DetectedTask) -> TaskSpec:
         inputs=list(task.inputs),
         outputs=list(task.outputs),
         metrics=metrics,
+        top_level=task.top_level and not _is_private_entry(task.entry),
     )
 
 
-def _metric_specs_from_slm(slm_metrics: list[_SLMMetric]) -> list[MetricSpec]:
+def _metric_specs_from_slm(
+    slm_metrics: list[_SLMMetric], project_root: Path | None = None
+) -> list[MetricSpec]:
     """Convert SLM-proposed metrics into validated MetricSpec, applying
-    registry defaults for threshold/weight when the SLM omits them."""
+    registry defaults for threshold/weight when the SLM omits them.
+
+    ``project_root`` resolves project-local ``eval/metrics.yaml`` metrics so
+    the SLM can propose (and get defaults for) custom metrics the project
+    declares."""
     out: list[MetricSpec] = []
     for m in slm_metrics:
-        reg = get_metric(m.name)
-        threshold = m.threshold if m.threshold is not None else (
-            reg.default_threshold if reg else 0.0
+        reg = get_metric(m.name, project_root=project_root)
+        threshold = (
+            m.threshold if m.threshold is not None else (reg.default_threshold if reg else 0.0)
         )
-        weight = m.weight if m.weight is not None else (
-            reg.default_weight if reg else 1.0
-        )
+        weight = m.weight if m.weight is not None else (reg.default_weight if reg else 1.0)
         out.append(MetricSpec(name=m.name, threshold=threshold, weight=weight))
     return out
 
@@ -191,9 +191,7 @@ def _looks_like_rag_task(slm: _SLMTask) -> bool:
     ``type: chat``."""
     if "documents" in slm.outputs:
         return True
-    return "query" in slm.inputs and any(
-        o in _RAG_OUTPUT_HINTS for o in slm.outputs
-    )
+    return "query" in slm.inputs and any(o in _RAG_OUTPUT_HINTS for o in slm.outputs)
 
 
 def _apply_rag_downgrade_guard(slm: _SLMTask, task: DetectedTask) -> None:
@@ -261,8 +259,14 @@ def _apply_hint_type_pin(slm: _SLMTask, task: DetectedTask) -> None:
 
 
 def _task_spec_from_slm(
-    slm: _SLMTask, *, file_path: str, entry: str | None
+    slm: _SLMTask,
+    *,
+    file_path: str,
+    entry: str | None,
+    project_root: Path | None = None,
 ) -> TaskSpec:
+    from ai_eval.inference.synthesize import _is_private_entry
+
     return TaskSpec(
         file_path=file_path,
         entry=entry,
@@ -270,7 +274,8 @@ def _task_spec_from_slm(
         purpose=slm.purpose,
         inputs=list(slm.inputs),
         outputs=list(slm.outputs),
-        metrics=_metric_specs_from_slm(slm.metrics),
+        metrics=_metric_specs_from_slm(slm.metrics, project_root=project_root),
+        top_level=not _is_private_entry(entry),
     )
 
 
@@ -309,10 +314,7 @@ _RAG_OUTPUT_HINTS = {"documents", "answer", "response", "result"}
 def _io_looks_rag(task: TaskSpec) -> bool:
     if "documents" in task.outputs:
         return True
-    return (
-        "query" in task.inputs
-        and any(o in _RAG_OUTPUT_HINTS for o in task.outputs)
-    )
+    return "query" in task.inputs and any(o in _RAG_OUTPUT_HINTS for o in task.outputs)
 
 
 def _messages(system_prompt: str) -> list[dict[str, str]]:
@@ -350,7 +352,7 @@ def build_rubrics_slm(
     do_complete: CompleteFn = complete_fn if complete_fn is not None else _default_complete
     cache = cache if cache is not None else ResponseCache(project_root)
     stats = BuildStats()
-    metric_names = sorted(all_names())
+    metric_names = sorted(all_names(project_root))
     few_shot = render_few_shot()
     used_names: set[str] = set()
     task_specs: dict[str, TaskSpec] = {}
@@ -381,9 +383,7 @@ def build_rubrics_slm(
             )
             if spec is None:
                 continue
-            name = _unique_name(
-                _collapse_dotted_name(task.name, task.entry), used_names
-            )
+            name = _unique_name(_collapse_dotted_name(task.name, task.entry), used_names)
             used_names.add(name)
             task_specs[name] = spec
             spent_chars += prompt_chars
@@ -400,12 +400,13 @@ def build_rubrics_slm(
             stats=stats,
         )
         for named in recovered:
-            name = _unique_name(
-                _collapse_dotted_name(named.name, named.entry), used_names
-            )
+            name = _unique_name(_collapse_dotted_name(named.name, named.entry), used_names)
             used_names.add(name)
             task_specs[name] = _task_spec_from_slm(
-                named, file_path=named.file_path, entry=named.entry
+                named,
+                file_path=named.file_path,
+                entry=named.entry,
+                project_root=project_root,
             )
 
     rubrics = RubricsConfig(
@@ -445,9 +446,7 @@ def _classify_one_task(
     ``prompt_chars`` is the snippet size actually sent to the SLM (0 on a cache
     hit, since no live call is made), so the caller can enforce a token budget.
     """
-    evidence = build_task_evidence(
-        project_root, task, max_snippet_chars=caps.max_snippet_chars
-    )
+    evidence = build_task_evidence(project_root, task, max_snippet_chars=caps.max_snippet_chars)
     # Hybrid mode: surface the rule engine's classified type as prior evidence
     # so the SLM can weigh it (it still owns the final type). The hint also
     # enters the cache key so hybrid and slm runs don't share a cache entry.
@@ -504,7 +503,9 @@ def _classify_one_task(
         return _fallback_task_spec(task), prompt_chars
     _apply_rag_downgrade_guard(slm, task)
     _apply_hint_type_pin(slm, task)
-    return _task_spec_from_slm(slm, file_path=task.file_path, entry=task.entry), prompt_chars
+    return _task_spec_from_slm(
+        slm, file_path=task.file_path, entry=task.entry, project_root=project_root
+    ), prompt_chars
 
 
 def _recover_empty(
@@ -565,11 +566,7 @@ def _recover_empty(
             cache.put(key, recovery.model_dump(mode="json"))
     # Drop any recovered tasks that came back content-free — they'd produce
     # silently-empty rubric entries with no inputs/outputs/metrics.
-    return [
-        t
-        for t in recovery.tasks
-        if t.inputs or t.outputs or t.metrics or t.purpose
-    ]
+    return [t for t in recovery.tasks if t.inputs or t.outputs or t.metrics or t.purpose]
 
 
 __all__ = [

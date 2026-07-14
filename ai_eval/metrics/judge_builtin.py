@@ -4,11 +4,16 @@ A :class:`~ai_eval.metrics.registry.JudgeMetric` couples a metric name to its
 judge prompt builder (``(task_spec, example, output) -> messages``) and the
 canonical sub-score dimension the runner lifts into the metric value.
 
-These four ship in-code; ``latency_p50`` / ``latency_p95`` are non-judge and
-live in ``ai_eval/runner/metrics/latency.py`` (computed by the engine).
-``context_precision`` is "partial" per design §2.6: a deterministic first pass
-over retrieved docs, with the judge as a tiebreaker — implemented as a judge
-metric whose prompt builder includes the deterministic signal.
+These five ship in-code (the high-frequency set); ``latency_p50`` /
+``latency_p95`` are non-judge and live in ``ai_eval/runner/metrics/latency.py``
+(computed by the engine). ``context_precision`` is "partial" per design §2.6:
+a deterministic first pass over retrieved docs, with the judge as a tiebreaker
+— implemented as a judge metric whose prompt builder includes the
+deterministic signal.
+
+Niche/project-specific metrics (slot_filling_accuracy, etc.) are NOT built-in
+— they live in the consuming project's ``eval/metrics.yaml`` (see
+:mod:`ai_eval.metrics.local` and ``docs/metrics.md``).
 """
 
 from __future__ import annotations
@@ -162,9 +167,11 @@ def _context_precision(
         scored_dimension="context_precision",
         task_type=task_type,
         task_purpose=purpose,
-        input={**(_input_payload(example) if isinstance(inp, dict) else {"input": inp}),
-               "_retrieved": retrieved,
-               "_deterministic_signal": det_signal},
+        input={
+            **(_input_payload(example) if isinstance(inp, dict) else {"input": inp}),
+            "_retrieved": retrieved,
+            "_deterministic_signal": det_signal,
+        },
         output=output,
     )
     if tier == "basic":
@@ -228,38 +235,6 @@ def _task_completion(
     return build_cot(**common)
 
 
-def _slot_filling_accuracy(
-    task_spec: Any, example: dict[str, Any], output: Any, *, tier: str = "complex"
-) -> list[dict[str, str]]:
-    task_type, purpose = _task_fields(task_spec)
-    inp = _input_payload(example)
-    expected = _expected_payload(example)
-    common = dict(
-        metric_name="slot_filling_accuracy",
-        metric_description=(
-            "Accuracy of slots/arguments filled for booking or workflow tasks "
-            "vs. the expected slots. Score 1.0 for exact match, partial credit "
-            "per correctly filled slot."
-        ),
-        scored_dimension="slot_filling_accuracy",
-        task_type=task_type,
-        task_purpose=purpose,
-        input=inp,
-        output=output,
-        expected=expected,
-    )
-    if tier == "basic":
-        return build_checklist(
-            checks=(
-                "all required slots are present in the output",
-                "slot values match the expected values",
-                "no extra or invalid slots filled",
-            ),
-            **common,
-        )
-    return build_cot(**common)
-
-
 BUILTIN_JUDGE_METRICS: tuple[JudgeMetric, ...] = (
     JudgeMetric(
         name="argument_accuracy",
@@ -295,13 +270,6 @@ BUILTIN_JUDGE_METRICS: tuple[JudgeMetric, ...] = (
         applicable_task_types=("booking", "workflow", "agent"),
         scored_dimension="task_completion",
         prompt_builder=_task_completion,
-    ),
-    JudgeMetric(
-        name="slot_filling_accuracy",
-        description="Accuracy of slots/arguments filled for booking or workflow tasks.",
-        applicable_task_types=("booking", "workflow"),
-        scored_dimension="slot_filling_accuracy",
-        prompt_builder=_slot_filling_accuracy,
     ),
 )
 

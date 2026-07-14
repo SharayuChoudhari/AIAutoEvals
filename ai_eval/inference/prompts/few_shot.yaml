@@ -40,7 +40,7 @@
     type: booking
     inputs: ["user_intent"]
     outputs: ["booking_confirmation"]
-    metrics: ["slot_filling_accuracy", "task_completion"]
+    metrics: ["argument_accuracy", "task_completion"]
 
 - example: scoring_rubric
   context: |
@@ -60,7 +60,7 @@
     type: scoring
     inputs: ["question", "student_answer", "rubric"]
     outputs: ["score"]
-    metrics: ["scoring_accuracy"]
+    metrics: ["hallucination_rate"]
 
 - example: document_extraction
   context: |
@@ -81,7 +81,7 @@
     type: extraction
     inputs: ["document_text"]
     outputs: ["vendor", "total", "date"]
-    metrics: ["extraction_field_accuracy"]
+    metrics: ["argument_accuracy"]
 
 - example: classification
   context: |
@@ -101,7 +101,7 @@
     type: classification
     inputs: ["message"]
     outputs: ["intent"]
-    metrics: ["classification_f1"]
+    metrics: ["hallucination_rate"]
 
 - example: summarization
   context: |
@@ -120,4 +120,4 @@
     type: summarization
     inputs: ["long_text"]
     outputs: ["summary"]
-    metrics: ["summary_faithfulness"]
+    metrics: ["faithfulness"]

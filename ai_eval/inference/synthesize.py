@@ -39,14 +39,13 @@ _DEFAULT_METRICS: dict[str, list[MetricSpec]] = {
     "chat": [
         MetricSpec(name="hallucination_rate", threshold=0.1, weight=1.0),
     ],
-    # Only the two metrics native to `workflow` (per the registry's
-    # applicable_task_types). argument_accuracy / hallucination_rate are NOT
-    # auto-assigned here — they list tool_calling/agent, not workflow, and the
-    # prior plan's Risks flagged that applicability mismatch. Users add them
-    # per-task when wanted.
+    # task_completion is the only built-in metric native to `workflow`.
+    # slot_filling_accuracy was removed from built-ins (it's now a project-local
+    # metric in eval/metrics.yaml — see docs/metrics.md). argument_accuracy /
+    # hallucination_rate are NOT auto-assigned here — they list tool_calling/
+    # agent, not workflow. Users add niche/per-task metrics when wanted.
     "workflow": [
         MetricSpec(name="task_completion", threshold=0.9, weight=1.0),
-        MetricSpec(name="slot_filling_accuracy", threshold=0.9, weight=1.0),
     ],
 }
 
@@ -102,6 +101,20 @@ def _unique_name(name: str, used: set[str]) -> str:
 
 
 _CAMEL_BOUNDARY = re.compile(r"(?<!^)(?=[A-Z])")
+
+
+def _is_private_entry(entry: str | None) -> bool:
+    """True when the entry is a private (``_``-prefixed) method.
+
+    ``Class._method`` → True (private). ``Class.method`` → False (public).
+    Bare module-level functions (no ``.``) → False. Private methods are
+    internal implementation details, not the complete job the user cares
+    about, so they're marked ``top_level=False`` (AGENTS.md §1).
+    """
+    if entry and "." in entry:
+        method = entry.rpartition(".")[2]
+        return method.startswith("_")
+    return False
 
 
 def _camel_to_snake(name: str) -> str:
@@ -191,6 +204,7 @@ def build_rubrics(
             inputs=task.inputs,
             outputs=task.outputs,
             metrics=list(_DEFAULT_METRICS.get(task_type, _DEFAULT_METRICS["chat"])),
+            top_level=task.top_level and not _is_private_entry(task.entry),
         )
     return RubricsConfig(
         schema_version=SCHEMA_VERSION,
