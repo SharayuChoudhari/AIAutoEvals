@@ -46,12 +46,32 @@ def config_hash(rubrics: RubricsConfig) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
+class _Stub:
+    """Permissive stand-in for a required non-primitive constructor arg.
+
+    Any attribute access or call returns a new _Stub so a task class's
+    __init__ / method body that touches ``config.x`` or ``session.add(...)``
+    doesn't raise. Used only for required non-primitive params (Bug 3).
+    """
+
+    __slots__ = ()
+
+    def __getattr__(self, name: str) -> _Stub:
+        return _Stub()
+
+    def __call__(self, *a, **kw) -> _Stub:
+        return _Stub()
+
+
 def _fake_call_args(sig) -> tuple[tuple, dict]:
     """Build plausible positional + keyword args for a callable from its
     inspect.Signature: primitives default to ``""``/``0``/``0.0``/``False``,
-    everything else defaults to ``None``. Used to construct task-class instances
-    for dotted ``Class.method`` entries (pure-LLM path; IO-coupled tasks get
-    the harness monkey-patches installed first).
+    required non-primitive params get a ``_Stub`` (so ``__init__`` / method
+    bodies that touch ``config.x`` or ``session.add(...)`` don't raise), and
+    params with defaults are left to apply. ``self`` is skipped (it's supplied
+    implicitly by ``cls(...)``). Used to construct task-class instances for
+    dotted ``Class.method`` entries (pure-LLM path; IO-coupled tasks get the
+    harness monkey-patches installed first).
     """
     import inspect
 
@@ -63,10 +83,14 @@ def _fake_call_args(sig) -> tuple[tuple, dict]:
             inspect.Parameter.VAR_KEYWORD,
         ):
             continue
+        # `self` is supplied implicitly by `cls(...)` — never fabricate it.
+        if param.name == "self":
+            continue
         if param.default is not inspect.Parameter.empty:
             # Has a real default — let it apply.
             continue
-        # No default: fabricate a primitive placeholder.
+        # No default: fabricate a primitive placeholder, or a permissive
+        # _Stub for non-primitive / unannotated required params (Bug 3).
         ann = param.annotation
         if ann is int:
             args.append(0)
@@ -77,20 +101,40 @@ def _fake_call_args(sig) -> tuple[tuple, dict]:
         elif ann is str:
             args.append("")
         else:
-            args.append(None)
+            args.append(_Stub())
     return tuple(args), kwargs
 
 
-def _load_harness(task_name: str, cwd: Path) -> bool:
+def _ensure_task_on_syspath(file_path: Path, cwd: Path) -> None:
+    """Insert ``cwd`` and the task file's parent onto ``sys.path``.
+
+    Idempotent (guarded by ``if p not in sys.path``), so calling it more than
+    once (e.g. before the harness load *and* inside ``_import_entry``) is
+    harmless. Needed for dotted entries where the task module does
+    ``from <pkg> import ...`` against a subpackage under the project root —
+    ``ai-evals`` runs as an installed console script, so the cwd isn't
+    auto-added to ``sys.path`` (Bug 1).
+    """
+    for p in (str(cwd), str(file_path.parent)):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+
+
+def _load_harness(task_name: str, cwd: Path, file_path: Path) -> bool:
     """Import and install the stub harness for an IO-coupled task (D5/D7).
 
     Looks for ``eval/_harness_<safe_task_name>.py`` and calls its ``install()``
     so the task's ``self.<dao>.<method>()`` reads return canned fixtures. Returns
     True if a harness was installed, False if none exists (caller decides whether
     to skip). Safe to call repeatedly: harness install is idempotent.
+
+    Sets up ``sys.path`` *before* loading the harness so the harness's
+    ``_load_task_module`` → ``exec_module`` can resolve the task module's
+    top-level cross-package imports (Bug 1).
     """
     import re
 
+    _ensure_task_on_syspath(file_path, cwd)
     safe = re.sub(r"[^0-9a-zA-Z_]", "_", task_name)
     harness_path = (cwd / "eval" / f"_harness_{safe}.py")
     if not harness_path.is_file():
@@ -135,9 +179,7 @@ def _import_entry(task_spec: TaskSpec, cwd: Path):
         file_path = (cwd / task_spec.file_path).resolve()
     module_name = "_ai_eval_task_" + file_path.stem
     # Insert cwd + file parent on sys.path so relative imports in the task work.
-    for p in (str(cwd), str(file_path.parent)):
-        if p not in sys.path:
-            sys.path.insert(0, p)
+    _ensure_task_on_syspath(file_path, cwd)
     # Dotted entries may have a harness that loaded + patched the target
     # module under a different name; reuse that patched module so the
     # monkey-patches survive. Bare ``fn`` entries always load fresh (fast path:
@@ -356,7 +398,10 @@ async def _run_example(
         # the entry so the instance's self.<dao>.<method>() reads return canned
         # fixtures. No-op for pure-LLM tasks (no harness file on disk).
         if "." in (tspec.entry or ""):
-            await asyncio.to_thread(_load_harness, tname, project_root)
+            _fp = Path(tspec.file_path)
+            if not _fp.is_absolute():
+                _fp = (project_root / tspec.file_path).resolve()
+            await asyncio.to_thread(_load_harness, tname, project_root, _fp)
         # Offload the (sync) task import + call to a thread so the event loop
         # isn't blocked — parallel examples can then overlap. The import is
         # memoized-ish per module name, and the call is the user's own code.

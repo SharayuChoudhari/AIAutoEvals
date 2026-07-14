@@ -4,11 +4,13 @@ loading (D7/Step 7)."""
 from __future__ import annotations
 
 import asyncio
+import inspect
+import sys
 import time
 from pathlib import Path
 
 from ai_eval.config.schema import JudgeConfig, RubricsConfig, TaskSpec
-from ai_eval.runner.engine import execute
+from ai_eval.runner.engine import _fake_call_args, execute
 
 
 def _rubrics(tasks: dict[str, TaskSpec]) -> RubricsConfig:
@@ -161,3 +163,146 @@ def test_harness_loaded_for_io_coupled_dotted_entry(tmp_path: Path) -> None:
     task = record.tasks["svc_process"]
     # The harness patched process → no real DB hit → no error.
     assert all(e.status != "error" for e in task.examples), task.errors
+
+
+def test_dotted_entry_required_non_self_arg_constructs(tmp_path: Path) -> None:
+    """A ``__init__(self, config)`` with a required non-self arg constructs
+    without ``TypeError: missing 1 required positional argument``.
+
+    Pins Bug 2 (self must be skipped) + Bug 3 (required non-primitive arg gets
+    a permissive _Stub, not None). Mirrors ``SingleQueryEvaluator``.
+    """
+
+    class _Svc:
+        def __init__(self, config):
+            self.config = config
+
+        def process(self, q):
+            return f"got:{q}"
+
+    sig = inspect.signature(_Svc.__init__)
+    args, kwargs = _fake_call_args(sig)
+    # self skipped → exactly one fabricated arg (a _Stub), not two/None.
+    assert len(args) == 1
+    instance = _Svc(*args, **kwargs)
+    assert instance.process("hi") == "got:hi"
+
+    # End-to-end through the engine.
+    (tmp_path / "svc.py").write_text(
+        "class Svc:\n"
+        "    def __init__(self, config):\n"
+        "        self.config = config\n"
+        "    def process(self, q):\n"
+        "        return f'got:{q}'\n",
+        encoding="utf-8",
+    )
+    rubrics = _rubrics({
+        "svc_process": TaskSpec(file_path="svc.py", entry="Svc.process",
+                                type="chat", metrics=[]),
+    })
+    golden = {"svc_process": [{"id": "e1", "input": "hi"}]}
+    record = _run(execute(
+        rubrics, golden, project_root=tmp_path, parallel=1,
+        complete_fn=None, run_id="b23", started_at=time.time(),
+    ))
+    task = record.tasks["svc_process"]
+    assert all(e.status != "error" for e in task.examples), task.errors
+    assert not any("missing" in (e.error or "") for e in task.examples)
+
+
+def test_dotted_entry_stub_arg_absorbs_method_body_access(tmp_path: Path) -> None:
+    """A required ``session`` arg becomes a ``_Stub`` that absorbs
+    ``self.session.add(...)`` in the method body — no ``AttributeError``.
+
+    Pins Bug 3. Mirrors ``ChatMessageService``.
+    """
+    (tmp_path / "svc.py").write_text(
+        "class Svc:\n"
+        "    def __init__(self, session):\n"
+        "        self.session = session\n"
+        "    def create_workflow(self, q):\n"
+        "        self.session.add(len(q))\n"
+        "        return f'workflow:{q}'\n",
+        encoding="utf-8",
+    )
+    rubrics = _rubrics({
+        "svc_create": TaskSpec(file_path="svc.py", entry="Svc.create_workflow",
+                               type="chat", metrics=[]),
+    })
+    golden = {"svc_create": [{"id": "e1", "input": "hello"}]}
+    record = _run(execute(
+        rubrics, golden, project_root=tmp_path, parallel=1,
+        complete_fn=None, run_id="b3", started_at=time.time(),
+    ))
+    task = record.tasks["svc_create"]
+    assert all(e.status != "error" for e in task.examples), task.errors
+
+
+def test_dotted_entry_cross_package_import_loads(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A task module with a top-level ``from layers.dao import ...`` loads
+    under console-script semantics (cwd NOT auto-on-sys.path).
+
+    Pins Bug 1 end-to-end. Mirrors ``document_vector_d_a_o``. Uses
+    ``monkeypatch`` to drop ``tmp_path`` (and the empty string) from
+    ``sys.path`` so the bug actually triggers pre-fix.
+    """
+    layers = tmp_path / "layers"
+    layers.mkdir()
+    (layers / "__init__.py").write_text("", encoding="utf-8")
+    (layers / "dao.py").write_text(
+        "class DocumentVectorDAO:\n"
+        "    def search(self, q):\n"
+        "        raise RuntimeError('real vector store hit')\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "svc.py").write_text(
+        "from layers.dao import DocumentVectorDAO\n"
+        "class Svc:\n"
+        "    def __init__(self, session):\n"
+        "        self.dao = DocumentVectorDAO()\n"
+        "        self.session = session\n"
+        "    def search(self, q):\n"
+        "        return self.dao.search(q)\n",
+        encoding="utf-8",
+    )
+    eval_dir = tmp_path / "eval"
+    eval_dir.mkdir()
+    from ai_eval.scaffold.harness_writer import HarnessSpec, IOAttr, render_harness
+
+    spec = HarnessSpec(
+        task_name="svc_search", entry="Svc.search", file_path="svc.py",
+        attrs=[IOAttr(attr="dao", method="search", ctor_name="DocumentVectorDAO")],
+        body_hash="stub",
+    )
+    content = render_harness(spec)
+    content = content.replace(
+        "('dao', 'search'): {}", "('dao', 'search'): [{'id': 1, 'text': 'canned'}]"
+    )
+    (eval_dir / "_harness_svc_search.py").write_text(content, encoding="utf-8")
+
+    rubrics = _rubrics({
+        "svc_search": TaskSpec(file_path="svc.py", entry="Svc.search",
+                               type="chat", metrics=[]),
+    })
+    golden = {"svc_search": [{"id": "e1", "input": "q"}]}
+
+    # Mimic a console-script entrypoint: cwd is NOT on sys.path. Drop tmp_path
+    # and "" so the harness's exec_module can't find `layers` without the fix.
+    saved = list(sys.path)
+    tmp_str = str(tmp_path)
+    monkeypatch.setattr(
+        sys, "path", [p for p in sys.path if p not in ("", tmp_str)]
+    )
+    try:
+        record = _run(execute(
+            rubrics, golden, project_root=tmp_path, parallel=1,
+            complete_fn=None, run_id="b1", started_at=time.time(),
+        ))
+    finally:
+        sys.path[:] = saved
+
+    task = record.tasks["svc_search"]
+    assert all(e.status != "error" for e in task.examples), task.errors
+    assert not any("ModuleNotFoundError" in (e.error or "") for e in task.examples)
