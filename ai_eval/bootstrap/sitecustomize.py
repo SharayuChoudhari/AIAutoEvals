@@ -202,9 +202,7 @@ def build_child_env(
 
     env = dict(base_env)
     existing = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = (
-        f"{shim_dir}{os.pathsep}{existing}" if existing else str(shim_dir)
-    )
+    env["PYTHONPATH"] = f"{shim_dir}{os.pathsep}{existing}" if existing else str(shim_dir)
     env["AI_EVAL_BOOTSTRAP_SINK"] = str(sink_path)
     env["AI_EVAL_BOOTSTRAP_REDACT"] = "1" if redact else "0"
     env["AI_EVAL_BOOTSTRAP_TASKS"] = json.dumps(task_specs)

@@ -40,6 +40,7 @@ def advisory_lock(lock_path: Path) -> Iterator[None]:
     finally:
         try:
             import fcntl as _f
+
             _f.flock(fh.fileno(), _f.LOCK_UN)
         except Exception:
             pass

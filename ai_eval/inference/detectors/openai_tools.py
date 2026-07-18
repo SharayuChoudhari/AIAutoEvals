@@ -58,9 +58,7 @@ class OpenAIToolsDetector(Detector):
                     entry=entry,
                     inputs=["messages", "tools"],
                     outputs=["tool_calls", "content"],
-                    evidence=[
-                        f"openai chat.completions.create(tools=...) at {rel}:{call.lineno}"
-                    ],
+                    evidence=[f"openai chat.completions.create(tools=...) at {rel}:{call.lineno}"],
                 )
             )
         return out

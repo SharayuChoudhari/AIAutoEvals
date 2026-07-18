@@ -59,9 +59,7 @@ def bootstrap_command(
         raise typer.Exit(code=EXIT_USAGE)
 
     if no_instrument:
-        typer.echo(
-            "error: `--no-instrument` is reserved for Phase 5 (OTEL)", err=True
-        )
+        typer.echo("error: `--no-instrument` is reserved for Phase 5 (OTEL)", err=True)
         typer.echo("  what: OpenTelemetry bootstrap path not yet implemented", err=True)
         typer.echo("  fix:  omit the flag (instrumentation is on by default)", err=True)
         raise typer.Exit(code=EXIT_USAGE)

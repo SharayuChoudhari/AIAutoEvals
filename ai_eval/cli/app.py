@@ -222,36 +222,20 @@ from ai_eval.cli import (
     stubs as _stubs,
 )
 
-app.command("init", help="Scan the repo and scaffold eval/ (rubrics + tests).")(
-    _init.init_command
-)
+app.command("init", help="Scan the repo and scaffold eval/ (rubrics + tests).")(_init.init_command)
 app.command("analyze", help="Re-run repo inference and refresh rubrics.yaml.")(
     _analyze.analyze_command
 )
 app.command("bootstrap", help="Capture real runtime traces into a golden set.")(
     _bootstrap.bootstrap_command
 )
-app.command("run", help="Execute evaluations against the current code.")(
-    _run.run_command
-)
-app.command("diff", help="Show regression diff vs. a baseline run.")(
-    _diff.diff_command
-)
-app.command("report", help="Render a past run as a human or JSON report.")(
-    _report.report_command
-)
-app.command("judge", help="Inspect / test the configured judge models.")(
-    _judge.judge_command
-)
-app.command("doctor", help="Verify environment, providers, and config.")(
-    _doctor.doctor_command
-)
-app.command("config", help="Print or edit resolved configuration.")(
-    _config_cmd.config_command
-)
-app.command("history", help="List, prune, or export past runs.")(
-    _history.history_command
-)
+app.command("run", help="Execute evaluations against the current code.")(_run.run_command)
+app.command("diff", help="Show regression diff vs. a baseline run.")(_diff.diff_command)
+app.command("report", help="Render a past run as a human or JSON report.")(_report.report_command)
+app.command("judge", help="Inspect / test the configured judge models.")(_judge.judge_command)
+app.command("doctor", help="Verify environment, providers, and config.")(_doctor.doctor_command)
+app.command("config", help="Print or edit resolved configuration.")(_config_cmd.config_command)
+app.command("history", help="List, prune, or export past runs.")(_history.history_command)
 app.command("version", help="Print the version and exit.")(_stubs.version_command)
 
 

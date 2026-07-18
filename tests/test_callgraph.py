@@ -29,15 +29,20 @@ def _scan(tasks: list[DetectedTask]) -> ScanResult:
 
 def _task(name: str, entry: str | None, file_path: str, **kw) -> DetectedTask:
     return DetectedTask(
-        name=name, framework=kw.get("framework", "openai"),
-        type=kw.get("type", "chat"), file_path=file_path, entry=entry,
-        inputs=kw.get("inputs", []), outputs=kw.get("outputs", []),
+        name=name,
+        framework=kw.get("framework", "openai"),
+        type=kw.get("type", "chat"),
+        file_path=file_path,
+        entry=entry,
+        inputs=kw.get("inputs", []),
+        outputs=kw.get("outputs", []),
     )
 
 
 # ---------------------------------------------------------------------------
 # __init__ attr tracking: self.dao.search() reaches the DAO task
 # ---------------------------------------------------------------------------
+
 
 def test_init_attr_resolves_cross_file_edge(tmp_path: Path) -> None:
     """``self.dao.search(...)`` in a service method reaches the DAO's
@@ -62,10 +67,12 @@ def test_init_attr_resolves_cross_file_edge(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     tasks = [
-        _task("ChatService.process_query", "ChatService.process_query",
-              "services/chat.py"),
-        _task("DocumentVectorDAO.search_similar_vectors",
-              "DocumentVectorDAO.search_similar_vectors", "layers/dao.py"),
+        _task("ChatService.process_query", "ChatService.process_query", "services/chat.py"),
+        _task(
+            "DocumentVectorDAO.search_similar_vectors",
+            "DocumentVectorDAO.search_similar_vectors",
+            "layers/dao.py",
+        ),
     ]
     scan = _scan(tasks)
     edges, _ = build_call_graph(tmp_path, scan)
@@ -97,10 +104,12 @@ def test_compute_roots_demotes_reached_helper(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     tasks = [
-        _task("ChatService.process_query", "ChatService.process_query",
-              "services/chat.py"),
-        _task("DocumentVectorDAO.search_similar_vectors",
-              "DocumentVectorDAO.search_similar_vectors", "layers/dao.py"),
+        _task("ChatService.process_query", "ChatService.process_query", "services/chat.py"),
+        _task(
+            "DocumentVectorDAO.search_similar_vectors",
+            "DocumentVectorDAO.search_similar_vectors",
+            "layers/dao.py",
+        ),
     ]
     scan = _scan(tasks)
     edges, _ = build_call_graph(tmp_path, scan)
@@ -113,11 +122,11 @@ def test_compute_roots_demotes_reached_helper(tmp_path: Path) -> None:
 # Shared helper called by 2 endpoints → helper demoted, both endpoints roots
 # ---------------------------------------------------------------------------
 
+
 def test_shared_helper_called_by_two_endpoints_is_demoted(tmp_path: Path) -> None:
     (tmp_path / "shared").mkdir()
     (tmp_path / "shared" / "retrieval.py").write_text(
-        "def retrieve(query):\n"
-        "    return vs.similarity_search(query)\n",
+        "def retrieve(query):\n    return vs.similarity_search(query)\n",
         encoding="utf-8",
     )
     (tmp_path / "api").mkdir()
@@ -149,6 +158,7 @@ def test_shared_helper_called_by_two_endpoints_is_demoted(tmp_path: Path) -> Non
 # Framework-object entry (no self.attr reachability) → root
 # ---------------------------------------------------------------------------
 
+
 def test_framework_object_entry_is_root(tmp_path: Path) -> None:
     """A LlamaIndex ``index.aquery()`` call site is a root: nothing reaches it
     (no ``self.<attr>`` reads into a detected site), so it's never demoted."""
@@ -170,15 +180,14 @@ def test_framework_object_entry_is_root(tmp_path: Path) -> None:
 # Safe degradation: lazy init / dynamic dispatch → no edge → over-promotion
 # ---------------------------------------------------------------------------
 
+
 def test_lazy_init_attr_not_in_init_draws_no_edge(tmp_path: Path) -> None:
     """When ``self.dao`` is assigned outside ``__init__`` (lazy init in the
     method body), no edge is drawn — both sites stay roots. This is the R2
     safe-degradation contract: never wrongly demote a real task."""
     (tmp_path / "layers").mkdir()
     (tmp_path / "layers" / "dao.py").write_text(
-        "class DAO:\n"
-        "    def search(self, q):\n"
-        "        return q\n",
+        "class DAO:\n    def search(self, q):\n        return q\n",
         encoding="utf-8",
     )
     (tmp_path / "services").mkdir()
@@ -209,18 +218,14 @@ def test_lazy_init_attr_not_in_init_draws_no_edge(tmp_path: Path) -> None:
 # Transitive reachability: A → B → C demotes both B and C
 # ---------------------------------------------------------------------------
 
+
 def test_transitive_reachability_demotes_chain(tmp_path: Path) -> None:
     (tmp_path / "mid.py").write_text(
-        "def helper(q):\n"
-        "    return inner(q)\n"
-        "def inner(q):\n"
-        "    return q\n",
+        "def helper(q):\n    return inner(q)\ndef inner(q):\n    return q\n",
         encoding="utf-8",
     )
     (tmp_path / "top.py").write_text(
-        "from mid import helper\n"
-        "def top(q):\n"
-        "    return helper(q)\n",
+        "from mid import helper\ndef top(q):\n    return helper(q)\n",
         encoding="utf-8",
     )
     tasks = [
@@ -238,6 +243,7 @@ def test_transitive_reachability_demotes_chain(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # No tasks → empty graph, clean exit
 # ---------------------------------------------------------------------------
+
 
 def test_empty_scan_produces_empty_graph(tmp_path: Path) -> None:
     scan = _scan([])

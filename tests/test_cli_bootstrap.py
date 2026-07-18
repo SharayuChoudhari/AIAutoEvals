@@ -78,14 +78,10 @@ _RUNTIME_SNIPPET = textwrap.dedent(
 )
 
 
-def test_bootstrap_e2e_populates_golden_set(
-    runner: CliRunner, tmp_path: Path, clean_env
-) -> None:
+def test_bootstrap_e2e_populates_golden_set(runner: CliRunner, tmp_path: Path, clean_env) -> None:
     _rubrics(tmp_path)
     cmd = [sys.executable, "-c", _RUNTIME_SNIPPET]
-    result = runner.invoke(
-        app, ["-C", str(tmp_path), "--format", "json", "bootstrap", "--", *cmd]
-    )
+    result = runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "bootstrap", "--", *cmd])
     assert result.exit_code == 0, result.stderr or result.output
     payload = json.loads(result.stdout)
     assert payload["captured"] >= 1
@@ -97,34 +93,35 @@ def test_bootstrap_e2e_populates_golden_set(
     assert ex["trace"]["calls"][0]["kind"] == "llm"
 
 
-def test_bootstrap_missing_command(
-    runner: CliRunner, tmp_path: Path, clean_env
-) -> None:
+def test_bootstrap_missing_command(runner: CliRunner, tmp_path: Path, clean_env) -> None:
     result = runner.invoke(app, ["-C", str(tmp_path), "bootstrap"])
     assert result.exit_code == 2
     assert "missing runtime command" in (result.stderr or result.output)
 
 
-def test_bootstrap_no_instrument_rejected(
-    runner: CliRunner, tmp_path: Path, clean_env
-) -> None:
+def test_bootstrap_no_instrument_rejected(runner: CliRunner, tmp_path: Path, clean_env) -> None:
     _rubrics(tmp_path)
-    result = runner.invoke(
-        app, ["-C", str(tmp_path), "bootstrap", "--no-instrument", "--", "true"]
-    )
+    result = runner.invoke(app, ["-C", str(tmp_path), "bootstrap", "--no-instrument", "--", "true"])
     assert result.exit_code == 2
     assert "Phase 5" in (result.stderr or result.output)
 
 
-def test_bootstrap_child_failure_exit_1(
-    runner: CliRunner, tmp_path: Path, clean_env
-) -> None:
+def test_bootstrap_child_failure_exit_1(runner: CliRunner, tmp_path: Path, clean_env) -> None:
     _rubrics(tmp_path)
     # runtime exits non-zero but still flushes nothing -> exit 1
     result = runner.invoke(
         app,
-        ["-C", str(tmp_path), "--format", "json", "bootstrap", "--",
-         sys.executable, "-c", "import sys; sys.exit(3)"],
+        [
+            "-C",
+            str(tmp_path),
+            "--format",
+            "json",
+            "bootstrap",
+            "--",
+            sys.executable,
+            "-c",
+            "import sys; sys.exit(3)",
+        ],
     )
     assert result.exit_code == 1
     payload = json.loads(result.stdout)
@@ -132,15 +129,22 @@ def test_bootstrap_child_failure_exit_1(
     assert payload["captured"] == 0
 
 
-def test_bootstrap_replace_mode(
-    runner: CliRunner, tmp_path: Path, clean_env
-) -> None:
+def test_bootstrap_replace_mode(runner: CliRunner, tmp_path: Path, clean_env) -> None:
     _rubrics(tmp_path)
     # seed an existing capture
     from ai_eval.bootstrap.golden_writer import append
-    append(tmp_path / "eval" / "golden_set.json",
-           [{"task": "chat_task", "input": {"query": "old"}, "expected": None,
-             "trace": {"calls": []}}])
+
+    append(
+        tmp_path / "eval" / "golden_set.json",
+        [
+            {
+                "task": "chat_task",
+                "input": {"query": "old"},
+                "expected": None,
+                "trace": {"calls": []},
+            }
+        ],
+    )
     cmd = [sys.executable, "-c", _RUNTIME_SNIPPET]
     result = runner.invoke(
         app, ["-C", str(tmp_path), "--format", "json", "bootstrap", "--replace", "--", *cmd]

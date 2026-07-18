@@ -58,9 +58,7 @@ def complete(
             "pip install ai-evals or run with --rubric-engine rules",
         ) from exc
 
-    client = instructor.from_litellm(
-        litellm.completion, mode=instructor.Mode(_INSTRUCTOR_MODE)
-    )
+    client = instructor.from_litellm(litellm.completion, mode=instructor.Mode(_INSTRUCTOR_MODE))
     try:
         return client.chat.completions.create(
             model=model,

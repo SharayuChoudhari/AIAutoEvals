@@ -103,6 +103,34 @@ class TaskJudgeOverrides(BaseModel):
     regression_check: str | None = None
 
 
+class NodeMetric(BaseModel):
+    """Bind one metric to a selector matching nodes in the entry's trace.
+
+    The runner walks ``example["trace"]["calls"]`` of the end-to-end entry and
+    scores every node matching ``node_selector`` with ``metric``. Each match
+    gets a synthetic ``node_id`` (``<kind>_<i>``, e.g. ``retrieve_0``) and the
+    per-node score lands in :attr:`ExampleRecord.node_scores`.
+
+    Selector grammar (a single clause; comma-free):
+
+    * ``kind=<x>`` — match ``call["kind"] == x`` (e.g. ``kind=retrieve``,
+      ``kind=llm``).
+    * ``name=<exact>`` — exact match on ``call["name"]``.
+    * ``name~=<substr>`` — substring match on ``call["name"]``.
+    * ``call_index=<n>`` — the n-th call (0-based), regardless of kind/name.
+
+    A selector may match multiple nodes; each match is scored independently.
+    Author ``node_metrics`` after a first ``ai-evals bootstrap`` reveals the
+    real ``call["kind"]`` / ``call["name"]`` values to select on (the framework
+    wrappers define those names, so guessing pre-bootstrap is fragile).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    node_selector: str
+    metric: MetricSpec
+
+
 class HintTaskSpec(BaseModel):
     """One entry in ``eval/ai-evals.hints.yaml``.
 
@@ -171,6 +199,13 @@ class TaskSpec(BaseModel):
     #: rubrics.yaml but skipped by auto-seed/run with a notice directing the
     #: user to ``ai-evals bootstrap`` for trustworthy baselines (AGENTS.md §1).
     top_level: bool = True
+    #: Optional node→metric bindings. The entry point is run once per example;
+    #: each ``NodeMetric`` scores the trace nodes it matches. Empty by default
+    #: — the rule/SLM engines do not auto-populate it. Users author entries
+    #: after a first bootstrap reveals real ``call.kind`` / ``call.name`` values
+    #: (AGENTS.md §1). Backward-compatible: older ``rubrics.yaml`` files with
+    #: no ``node_metrics`` key load unchanged.
+    node_metrics: list[NodeMetric] = Field(default_factory=list)
 
 
 class RubricsConfig(BaseModel):
@@ -203,6 +238,7 @@ __all__ = [
     "JudgeConfig",
     "JudgeTiering",
     "MetricSpec",
+    "NodeMetric",
     "ProjectType",
     "RubricsConfig",
     "TaskJudgeOverrides",

@@ -71,9 +71,7 @@ class OpenAIResponsesDetector(Detector):
                     entry=entry,
                     inputs=["messages", "tools"],
                     outputs=["output", "tool_calls"],
-                    evidence=[
-                        f"openai responses.create(tools=...) at {rel}:{call.lineno}"
-                    ],
+                    evidence=[f"openai responses.create(tools=...) at {rel}:{call.lineno}"],
                 )
             )
         return out

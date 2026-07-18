@@ -65,9 +65,7 @@ def run_command(
 
     golden_path = paths.golden_set_json
     if not golden_path.is_file():
-        typer.echo(
-            f"error: golden set not found at {golden_path}", err=True
-        )
+        typer.echo(f"error: golden set not found at {golden_path}", err=True)
         typer.echo("  fix: run `ai-evals bootstrap -- <cmd>` to capture traces", err=True)
         raise typer.Exit(code=EXIT_USAGE)
     try:
@@ -86,11 +84,13 @@ def run_command(
                 bid = last_run_id(paths.state_dir)
                 if bid is not None:
                     from ai_eval.storage.runs import load_run_raw
+
                     base_record = load_run_raw(paths.state_dir, bid)
                     baseline_id = bid
                     baseline_tasks = base_record.get("tasks")
             else:
                 from ai_eval.storage.runs import load_run_raw
+
                 base_record = load_run_raw(paths.state_dir, baseline)
                 baseline_id = baseline
                 baseline_tasks = base_record.get("tasks")
@@ -142,9 +142,7 @@ def run_command(
     exit_code = EXIT_OK
     if fail_on_regression:
         any_fail = any(
-            m.status == "fail"
-            for t in record.tasks.values()
-            for m in t.metrics.values()
+            m.status == "fail" for t in record.tasks.values() for m in t.metrics.values()
         )
         if any_fail:
             exit_code = EXIT_REGRESSION
@@ -169,9 +167,7 @@ def _render_tsv(record) -> None:
         for mname, m in t.metrics.items():
             delta = "" if m.delta is None else f"{m.delta:+.4f}"
             score = "" if m.score is None else f"{m.score:.4f}"
-            lines.append(
-                f"{tname}\t{mname}\t{score}\t{delta}\t{m.threshold:.4f}\t{m.status}"
-            )
+            lines.append(f"{tname}\t{mname}\t{score}\t{delta}\t{m.threshold:.4f}\t{m.status}")
     typer.echo("\n".join(lines))
 
 

@@ -123,6 +123,7 @@ def test_chromadb_patched() -> None:
 
 def test_redaction_masks_secret_keys() -> None:
     from ai_eval.bootstrap.tracer import redact
+
     out = redact({"api_key": "sk-secret", "other": "keep"})
     assert out["api_key"] == "***"
     assert out["other"] == "keep"
@@ -130,6 +131,7 @@ def test_redaction_masks_secret_keys() -> None:
 
 def test_redaction_masks_env_style_string() -> None:
     from ai_eval.bootstrap.tracer import redact
+
     out = redact("OPENAI_API_KEY=sk-secret123 extra")
     assert "sk-secret123" not in out
     assert "OPENAI_API_KEY=***" in out

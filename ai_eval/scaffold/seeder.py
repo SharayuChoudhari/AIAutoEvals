@@ -1,11 +1,11 @@
 """Hybrid golden-set seeding (D6).
 
-Pure-LLM tasks get 3-5 shape-varied auto-seeded inputs (empty, short, long,
-unicode, boundary) so ``ai-evals run`` produces meaningful scores immediately —
-zero authoring, zero environment. IO-coupled tasks get the stub harness (D5)
-plus 1 shape-valid example flagged ``seed: auto`` so the pipeline is green
-(non-error, non-empty); the run prints a one-line notice directing the user to
-``ai-evals bootstrap`` for trustworthy regression baselines.
+Pure-LLM top-level tasks get 3-5 shape-varied auto-seeded inputs (empty,
+short, long, unicode, boundary) so ``ai-evals run`` produces meaningful scores
+immediately — zero authoring, zero environment. IO-coupled tasks no longer get
+an auto-seeded example (the ``_Stub`` path is removed — AGENTS.md §1): they
+require ``ai-evals bootstrap`` to capture a real trace before ``run`` can score
+their nodes.
 
 Auto-seeded examples carry a ``"seed": "auto"`` marker so
 :func:`ai_eval.scaffold.golden_writer.has_real_captures` can distinguish them
@@ -45,24 +45,13 @@ def _pure_llm_examples(task_name: str) -> list[dict]:
     ]
 
 
-def _io_coupled_example(task_name: str) -> list[dict]:
-    return [
-        {
-            "id": f"{task_name}_auto",
-            "input": "",
-            "seed": SEED_AUTO_MARKER,
-        }
-    ]
-
-
-def seed_for_task(task_name: str, *, io_coupled: bool) -> list[dict]:
+def seed_for_task(task_name: str) -> list[dict]:
     """Return the auto-seed examples for one task.
 
-    Pure-LLM tasks get the shape-varied set; IO-coupled tasks get a single
-    green-pipeline example (the harness supplies the canned IO).
+    All top-level tasks get the pure-LLM shape-varied set (the only runnable
+    kind now — AGENTS.md §1). IO-coupled entry points are no longer
+    auto-seeded: they need ``ai-evals bootstrap`` to capture a real trace.
     """
-    if io_coupled:
-        return _io_coupled_example(task_name)
     return _pure_llm_examples(task_name)
 
 
@@ -88,7 +77,6 @@ def _strip_auto_seeds(examples: list) -> list:
 def seed_golden_set(
     rubrics: RubricsConfig,
     path: Path,
-    io_coupled_tasks: set[str],
 ) -> list[tuple[str, int]]:
     """Auto-seed ``golden_set.json`` for every top-level task in ``rubrics``.
 
@@ -98,13 +86,10 @@ def seed_golden_set(
     task has no real captures, fill it with the auto-seed set.
 
     **Non-top-level tasks** (``top_level=False`` — private methods, IO-coupled
-    services) are skipped entirely: their task key gets an empty list and the
-    run prints a notice directing the user to ``ai-evals bootstrap`` (AGENTS.md
-    §1). This is the "target the complete job" contract.
-
-    ``io_coupled_tasks`` — task names classified IO-coupled (D4) that are still
-    top-level get a single green-pipeline example; the rest get the pure-LLM
-    shape variants.
+    services, peer-reached survivors) are skipped entirely: their task key
+    gets an empty list and the run prints a notice directing the user to
+    ``ai-evals bootstrap`` (AGENTS.md §1). This is the "target the complete
+    job" contract.
 
     Returns ``[(task_name, num_seeded)]``.
     """
@@ -124,7 +109,7 @@ def seed_golden_set(
             tasks[name] = real
             seeded.append((name, 0))
             continue
-        auto = seed_for_task(name, io_coupled=name in io_coupled_tasks)
+        auto = seed_for_task(name)
         tasks[name] = real + auto
         seeded.append((name, len(auto)))
     out = {"schema_version": data.get("schema_version", 1), "tasks": tasks}

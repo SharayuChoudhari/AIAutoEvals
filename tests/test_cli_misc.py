@@ -24,9 +24,7 @@ def test_version_flag(runner: CliRunner, clean_env: None) -> None:
 
 
 def test_doctor_runs_json(runner: CliRunner, tmp_path: Path, clean_env: None) -> None:
-    result = runner.invoke(
-        app, ["-C", str(tmp_path), "--format", "json", "doctor"]
-    )
+    result = runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "doctor"])
     # Exit may be 1 (no rubrics, no provider creds). JSON must be valid.
     assert result.exit_code in (0, 1)
     payload = json.loads(result.stdout)
@@ -71,9 +69,7 @@ def test_doctor_exits_0_when_all_required_pass(
         "tasks": {},
     }
     (tmp_path / "eval").mkdir()
-    (tmp_path / "eval" / "rubrics.yaml").write_text(
-        _yaml.safe_dump(rubrics), encoding="utf-8"
-    )
+    (tmp_path / "eval" / "rubrics.yaml").write_text(_yaml.safe_dump(rubrics), encoding="utf-8")
     # also create .ai-evals/ so the writable check passes
     (tmp_path / ".ai-evals").mkdir()
 
@@ -88,18 +84,14 @@ def test_doctor_exits_0_when_all_required_pass(
 
 
 def test_config_print(runner: CliRunner, tmp_path: Path, clean_env: None) -> None:
-    result = runner.invoke(
-        app, ["-C", str(tmp_path), "--format", "json", "config"]
-    )
+    result = runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "config"])
     assert result.exit_code == 0, result.stderr or result.stdout
     payload = json.loads(result.stdout)
     assert "merged" in payload
     assert payload["merged"]["judge"]["default"].startswith("ollama/")
 
 
-def test_run_requires_golden_set(
-    runner: CliRunner, tmp_path: Path, clean_env: None
-) -> None:
+def test_run_requires_golden_set(runner: CliRunner, tmp_path: Path, clean_env: None) -> None:
     """Phase 4: `run` is implemented; without a golden set it exits 2 (usage)."""
     result = runner.invoke(app, ["-C", str(tmp_path), "run"])
     assert result.exit_code == 2
@@ -119,9 +111,7 @@ def test_doctor_includes_judge_gateway_check(
     runner: CliRunner, tmp_path: Path, clean_env: None
 ) -> None:
     """Phase 2: doctor reports the judge gateway reachability check (optional)."""
-    result = runner.invoke(
-        app, ["-C", str(tmp_path), "--format", "json", "doctor"]
-    )
+    result = runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "doctor"])
     payload = json.loads(result.stdout)
     names = [c["name"] for c in payload["checks"]]
     assert "judge gateway reachable" in names

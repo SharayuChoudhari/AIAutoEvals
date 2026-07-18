@@ -169,6 +169,7 @@ async def ping(
     Sends a trivial 1-token completion. Never raises — failures map to
     ``(False, message)`` so the CLI / doctor can render a check row.
     """
+
     class _Ok(BaseModel):
         ok: bool = True
 

@@ -31,6 +31,7 @@ def _parse(source: str) -> tuple[ast.AST, list]:
 # Shared predicates in signatures.py
 # ---------------------------------------------------------------------------
 
+
 def test_openai_tool_kwargs_constant_is_complete() -> None:
     """Ensure the shared partition constant contains all expected kwarg names."""
     assert "tools" in OPENAI_TOOL_KWARGS
@@ -56,6 +57,7 @@ def test_has_openai_tool_kwarg_true_and_false() -> None:
 # ---------------------------------------------------------------------------
 # Detector integration
 # ---------------------------------------------------------------------------
+
 
 def test_openai_tools_detector_picks_up_tools_kwarg(tmp_path: Path) -> None:
     path = tmp_path / "agent.py"
@@ -356,6 +358,7 @@ def test_classify_project_type_recovers_rag_from_documents_output() -> None:
 # Full scan_repo
 # ---------------------------------------------------------------------------
 
+
 def test_scan_repo_finds_all_tasks(tiny_repo: Path) -> None:
     result = scan_repo(tiny_repo)
     assert result.files_scanned >= 3
@@ -396,10 +399,12 @@ def test_synthesize_resolves_name_collisions() -> None:
         files_scanned=2,
         elapsed_seconds=0.0,
         tasks=[
-            DetectedTask(name="run", framework="openai", type="chat",
-                         file_path="a.py", entry="run"),
-            DetectedTask(name="run", framework="openai", type="chat",
-                         file_path="b.py", entry="run"),
+            DetectedTask(
+                name="run", framework="openai", type="chat", file_path="a.py", entry="run"
+            ),
+            DetectedTask(
+                name="run", framework="openai", type="chat", file_path="b.py", entry="run"
+            ),
         ],
         frameworks_seen={"openai"},
     )

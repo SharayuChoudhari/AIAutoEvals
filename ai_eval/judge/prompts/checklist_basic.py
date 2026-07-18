@@ -28,8 +28,8 @@ def build(
     checks = checks or (metric_description or f"output satisfies {metric_name}",)
     system = (
         "You are a strict evaluation judge using a binary checklist. For each "
-        "check, answer `yes` or `no`. Return JSON: {\"score\": float in [0,1] "
-        "(fraction of yes), \"rationale\": str, \"sub_scores\": {check: 1.0 if "
+        'check, answer `yes` or `no`. Return JSON: {"score": float in [0,1] '
+        '(fraction of yes), "rationale": str, "sub_scores": {check: 1.0 if '
         "yes else 0.0}}. The roll-up dimension is named by `scored_dimension`."
     )
     user_lines = [
@@ -42,9 +42,7 @@ def build(
     user_lines.append("input: " + json.dumps(input, default=str, ensure_ascii=False))
     user_lines.append("output: " + json.dumps(output, default=str, ensure_ascii=False))
     if expected is not None:
-        user_lines.append(
-            "expected: " + json.dumps(expected, default=str, ensure_ascii=False)
-        )
+        user_lines.append("expected: " + json.dumps(expected, default=str, ensure_ascii=False))
     user_lines.append("checks:")
     for i, c in enumerate(checks, 1):
         user_lines.append(f"  {i}. {c}")

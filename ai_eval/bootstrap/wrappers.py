@@ -50,6 +50,7 @@ def _wrap(orig: Callable, *, kind: str, name: str) -> Callable:
 
 def _is_coroutine(fn: Any) -> bool:
     import asyncio
+
     return asyncio.iscoroutinefunction(fn)
 
 
@@ -149,9 +150,8 @@ def install_hooks(
     """
     PATCH_STATUS.clear()
     from ai_eval.bootstrap.tracer import configure_sink
-    configure_sink(
-        sink=_noop_sink, redact_fields=[] if redact_fields else None
-    )
+
+    configure_sink(sink=_noop_sink, redact_fields=[] if redact_fields else None)
     # Re-enable redaction flag on the tracer (configure_sink sets redact_fields)
     if redact_fields:
         get_tracer().redact_fields = ["*"]

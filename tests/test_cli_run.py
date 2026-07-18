@@ -14,15 +14,16 @@ from ai_eval.cli.app import app
 
 def _fake_complete_factory(monkeypatch: pytest.MonkeyPatch, score: float = 0.9):
     async def complete_fn(*, model, messages, response_model, temperature=0.0):
-        return response_model.model_validate(
-            {"score": score, "rationale": "ok", "sub_scores": {}}
-        )
+        return response_model.model_validate({"score": score, "rationale": "ok", "sub_scores": {}})
+
     import ai_eval.judge.gateway as gw
+
     monkeypatch.setattr(gw, "_default_complete", complete_fn)
 
 
-def _setup_repo(tmp_path: Path, *, metric_threshold: float = 0.5,
-                task_file: str = "src/chat.py") -> None:
+def _setup_repo(
+    tmp_path: Path, *, metric_threshold: float = 0.5, task_file: str = "src/chat.py"
+) -> None:
     (tmp_path / "src").mkdir(exist_ok=True)
     (tmp_path / task_file).write_text(
         textwrap.dedent(
@@ -46,9 +47,7 @@ def _setup_repo(tmp_path: Path, *, metric_threshold: float = 0.5,
                         "file_path": task_file,
                         "entry": "main",
                         "type": "chat",
-                        "metrics": [
-                            {"name": "hallucination_rate", "threshold": metric_threshold}
-                        ],
+                        "metrics": [{"name": "hallucination_rate", "threshold": metric_threshold}],
                     }
                 },
             }
@@ -61,8 +60,12 @@ def _setup_repo(tmp_path: Path, *, metric_threshold: float = 0.5,
                 "schema_version": 1,
                 "tasks": {
                     "chat_task": [
-                        {"id": "e1", "input": {"query": "hello"},
-                         "expected": None, "trace": {"calls": []}}
+                        {
+                            "id": "e1",
+                            "input": {"query": "hello"},
+                            "expected": None,
+                            "trace": {"calls": []},
+                        }
                     ]
                 },
             }
@@ -72,14 +75,10 @@ def _setup_repo(tmp_path: Path, *, metric_threshold: float = 0.5,
     (tmp_path / ".ai-evals").mkdir(exist_ok=True)
 
 
-def test_run_json_pass(
-    runner: CliRunner, tmp_path: Path, monkeypatch, clean_env
-) -> None:
+def test_run_json_pass(runner: CliRunner, tmp_path: Path, monkeypatch, clean_env) -> None:
     _fake_complete_factory(monkeypatch, score=0.9)
     _setup_repo(tmp_path, metric_threshold=0.5)
-    result = runner.invoke(
-        app, ["-C", str(tmp_path), "--format", "json", "run"]
-    )
+    result = runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "run"])
     assert result.exit_code == 0, result.stderr or result.output
     payload = json.loads(result.stdout)
     assert "tasks" in payload
@@ -88,9 +87,7 @@ def test_run_json_pass(
     assert m["status"] == "pass"
 
 
-def test_run_human(
-    runner: CliRunner, tmp_path: Path, monkeypatch, clean_env
-) -> None:
+def test_run_human(runner: CliRunner, tmp_path: Path, monkeypatch, clean_env) -> None:
     _fake_complete_factory(monkeypatch, score=0.9)
     _setup_repo(tmp_path, metric_threshold=0.5)
     result = runner.invoke(app, ["-C", str(tmp_path), "run"])
@@ -98,9 +95,7 @@ def test_run_human(
     assert "chat_task" in result.output
 
 
-def test_run_tsv(
-    runner: CliRunner, tmp_path: Path, monkeypatch, clean_env
-) -> None:
+def test_run_tsv(runner: CliRunner, tmp_path: Path, monkeypatch, clean_env) -> None:
     _fake_complete_factory(monkeypatch, score=0.9)
     _setup_repo(tmp_path, metric_threshold=0.5)
     result = runner.invoke(app, ["-C", str(tmp_path), "--format", "tsv", "run"])
@@ -130,23 +125,17 @@ def test_run_pass_without_fail_flag_when_metric_low(
     # plan says --fail-on-regression triggers exit 3. Without it, exit 0.
     _fake_complete_factory(monkeypatch, score=0.3)
     _setup_repo(tmp_path, metric_threshold=0.9)
-    result = runner.invoke(
-        app, ["-C", str(tmp_path), "--format", "json", "run"]
-    )
+    result = runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "run"])
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     m = payload["tasks"]["chat_task"]["metrics"]["hallucination_rate"]
     assert m["status"] == "fail"
 
 
-def test_run_fresh_repo_no_delta(
-    runner: CliRunner, tmp_path: Path, monkeypatch, clean_env
-) -> None:
+def test_run_fresh_repo_no_delta(runner: CliRunner, tmp_path: Path, monkeypatch, clean_env) -> None:
     _fake_complete_factory(monkeypatch, score=0.9)
     _setup_repo(tmp_path, metric_threshold=0.5)
-    result = runner.invoke(
-        app, ["-C", str(tmp_path), "--format", "json", "run"]
-    )
+    result = runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "run"])
     payload = json.loads(result.stdout)
     m = payload["tasks"]["chat_task"]["metrics"]["hallucination_rate"]
     assert m["delta"] is None
@@ -168,7 +157,9 @@ def test_run_unregistered_metric_exit_1(
                 "defaults": {"parallel": 2, "cache": True, "tolerance": 0.02},
                 "tasks": {
                     "t": {
-                        "file_path": "src/bad.py", "entry": "main", "type": "chat",
+                        "file_path": "src/bad.py",
+                        "entry": "main",
+                        "type": "chat",
                         "metrics": [{"name": "totally_unknown_metric", "threshold": 0.5}],
                     }
                 },
@@ -177,28 +168,34 @@ def test_run_unregistered_metric_exit_1(
         encoding="utf-8",
     )
     (tmp_path / "eval" / "golden_set.json").write_text(
-        json.dumps({"schema_version": 1, "tasks": {
-            "t": [{"id": "e1", "input": "q", "expected": None, "trace": {"calls": []}}]
-        }}),
+        json.dumps(
+            {
+                "schema_version": 1,
+                "tasks": {
+                    "t": [{"id": "e1", "input": "q", "expected": None, "trace": {"calls": []}}]
+                },
+            }
+        ),
         encoding="utf-8",
     )
     (tmp_path / ".ai-evals").mkdir(exist_ok=True)
-    result = runner.invoke(
-        app, ["-C", str(tmp_path), "--format", "json", "run"]
-    )
+    result = runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "run"])
     assert result.exit_code == 1
     assert "totally_unknown_metric" in (result.stderr or result.output)
 
 
-def test_run_missing_golden_set(
-    runner: CliRunner, tmp_path: Path, monkeypatch, clean_env
-) -> None:
+def test_run_missing_golden_set(runner: CliRunner, tmp_path: Path, monkeypatch, clean_env) -> None:
     (tmp_path / "eval").mkdir(exist_ok=True)
     (tmp_path / "eval" / "rubrics.yaml").write_text(
-        json.dumps({"schema_version": 1, "project_type": "chat",
-                    "judge": {"default": "fake/local"},
-                    "defaults": {"parallel": 2, "cache": True, "tolerance": 0.02},
-                    "tasks": {}}),
+        json.dumps(
+            {
+                "schema_version": 1,
+                "project_type": "chat",
+                "judge": {"default": "fake/local"},
+                "defaults": {"parallel": 2, "cache": True, "tolerance": 0.02},
+                "tasks": {},
+            }
+        ),
         encoding="utf-8",
     )
     (tmp_path / ".ai-evals").mkdir(exist_ok=True)
@@ -207,9 +204,7 @@ def test_run_missing_golden_set(
     assert "golden set" in (result.stderr or result.output).lower()
 
 
-def test_run_saves_to_history(
-    runner: CliRunner, tmp_path: Path, monkeypatch, clean_env
-) -> None:
+def test_run_saves_to_history(runner: CliRunner, tmp_path: Path, monkeypatch, clean_env) -> None:
     _fake_complete_factory(monkeypatch, score=0.9)
     _setup_repo(tmp_path, metric_threshold=0.5)
     runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "run"])

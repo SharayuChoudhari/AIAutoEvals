@@ -23,10 +23,10 @@ from ai_eval.cli.app import app
 
 def _fake_complete(monkeypatch: pytest.MonkeyPatch, score: float = 0.9):
     async def complete_fn(*, model, messages, response_model, temperature=0.0):
-        return response_model.model_validate(
-            {"score": score, "rationale": "ok", "sub_scores": {}}
-        )
+        return response_model.model_validate({"score": score, "rationale": "ok", "sub_scores": {}})
+
     import ai_eval.judge.gateway as gw
+
     monkeypatch.setattr(gw, "_default_complete", complete_fn)
 
 
@@ -86,6 +86,7 @@ def _install_fake_openai():
     """Install a stub openai in sys.modules so the task module imports + runs."""
     import sys
     import types
+
     mod = types.ModuleType("openai")
 
     class _Completions:
@@ -114,8 +115,18 @@ def test_e2e_init_bootstrap_run_diff(
 
     # 1. init with rules engine (no ollama). --yes is a global flag.
     result = runner.invoke(
-        app, ["-C", str(tmp_path), "--yes", "--format", "json", "init",
-              "--rubric-engine", "rules", "--force"]
+        app,
+        [
+            "-C",
+            str(tmp_path),
+            "--yes",
+            "--format",
+            "json",
+            "init",
+            "--rubric-engine",
+            "rules",
+            "--force",
+        ],
     )
     assert result.exit_code == 0, result.stderr or result.output
     rubrics_path = tmp_path / "eval" / "rubrics.yaml"
@@ -141,8 +152,17 @@ def test_e2e_init_bootstrap_run_diff(
     # 2. bootstrap via a runtime snippet that emits a capture for chat_task.
     result = runner.invoke(
         app,
-        ["-C", str(tmp_path), "--format", "json", "bootstrap", "--",
-         sys.executable, "-c", _RUNTIME_SNIPPET],
+        [
+            "-C",
+            str(tmp_path),
+            "--format",
+            "json",
+            "bootstrap",
+            "--",
+            sys.executable,
+            "-c",
+            _RUNTIME_SNIPPET,
+        ],
     )
     assert result.exit_code == 0, result.stderr or result.output
     golden = json.loads((tmp_path / "eval" / "golden_set.json").read_text())
@@ -151,9 +171,7 @@ def test_e2e_init_bootstrap_run_diff(
     # 3. run (first run = baseline, fresh repo).
     _install_fake_openai()
     _fake_complete(monkeypatch, score=0.9)
-    result = runner.invoke(
-        app, ["-C", str(tmp_path), "--format", "json", "run", "--no-cache"]
-    )
+    result = runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "run", "--no-cache"])
     assert result.exit_code == 0, result.stderr or result.output
     payload = json.loads(result.stdout)
     m = payload["tasks"]["chat_task"]["metrics"]["hallucination_rate"]
@@ -185,31 +203,53 @@ def test_e2e_fresh_repo_no_delta_exit_0(
 ) -> None:
     _make_repo(tmp_path)
     runner.invoke(
-        app, ["-C", str(tmp_path), "--yes", "--format", "json", "init",
-              "--rubric-engine", "rules", "--force"]
+        app,
+        [
+            "-C",
+            str(tmp_path),
+            "--yes",
+            "--format",
+            "json",
+            "init",
+            "--rubric-engine",
+            "rules",
+            "--force",
+        ],
     )
     rubrics_path = tmp_path / "eval" / "rubrics.yaml"
     rubrics = yaml.safe_load(rubrics_path.read_text())
     rubrics["judge"] = {"default": "fake/local"}
     rubrics["tasks"] = {
         "chat_task": {
-            "file_path": "src/chat.py", "entry": "main", "type": "chat",
-            "inputs": ["query"], "outputs": ["answer"],
+            "file_path": "src/chat.py",
+            "entry": "main",
+            "type": "chat",
+            "inputs": ["query"],
+            "outputs": ["answer"],
             "metrics": [{"name": "hallucination_rate", "threshold": 0.5}],
         }
     }
     rubrics_path.write_text(yaml.safe_dump(rubrics), encoding="utf-8")
     (tmp_path / "eval" / "golden_set.json").write_text(
-        json.dumps({"schema_version": 1, "tasks": {
-            "chat_task": [{"id": "e1", "input": {"query": "hi"},
-                           "expected": None, "trace": {"calls": []}}]
-        }}),
+        json.dumps(
+            {
+                "schema_version": 1,
+                "tasks": {
+                    "chat_task": [
+                        {
+                            "id": "e1",
+                            "input": {"query": "hi"},
+                            "expected": None,
+                            "trace": {"calls": []},
+                        }
+                    ]
+                },
+            }
+        ),
         encoding="utf-8",
     )
     _fake_complete(monkeypatch, score=0.9)
-    result = runner.invoke(
-        app, ["-C", str(tmp_path), "--format", "json", "run", "--no-cache"]
-    )
+    result = runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "run", "--no-cache"])
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["tasks"]["chat_task"]["metrics"]["hallucination_rate"]["delta"] is None

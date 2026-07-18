@@ -3,7 +3,61 @@
 All notable changes to this project are documented here.
 Format based on Keep a Changelog; adheres to Semantic Versioning.
 
-## [Unreleased]
+## [0.1.7] - 2026-07-19
+### Added
+- **Trace-replay node scoring** (AGENTS.md §1): `ai-evals run` now runs only
+  the end-to-end entry point per use case and scores every internal node it
+  calls from the captured trace (`example["trace"]["calls"]`), not
+  re-executed. Node→metric binding is declared via the new
+  `node_metrics: list[NodeMetric]` field on `TaskSpec`. Each `NodeMetric` is
+  `{node_selector, metric: MetricSpec}`; the runner walks the trace, matches
+  nodes by selector (`kind=retrieve`, `name~=pgvector`, `name=exact`,
+  `call_index=0`), and scores each match. Per-node scores roll into the new
+  `ExampleRecord.node_scores` field (keyed by synthetic `node_id` like
+  `retrieve_0`); the task-level aggregate is the weighted mean of node scores
+  across examples. `init` writes `node_metrics: []` — author entries after a
+  first `ai-evals bootstrap` reveals real `call.kind`/`call.name` values. See
+  `docs/metrics.md` for the selector grammar.
+- **Deepest-root selection** (Layer 3 in `task_selection.py`): among surviving
+  tasks, demotes any that is itself called by another surviving peer to
+  `top_level=False`. Only the end-to-end entry point per use case is run;
+  internal nodes are scored from the trace. Independent use cases each keep
+  their own deepest root.
+- Per-node render block: `ai-evals run` (human format) emits a compact
+  `nodes:` section with per-node `metric=score` rows when an example has
+  `node_scores`. Opt-in — tasks without `node_metrics` render unchanged.
+
+### Changed
+- **`_Stub`/`_fake_call_args` removed** (`ai_eval/runner/engine.py`): dotted
+  `Class.method` entries now construct with no args (or a harness). An
+  IO-coupled entry point whose `__init__` requires real args and has no
+  harness fails with a clear bootstrap-directed `TypeError` (not a
+  `RecursionError`/`AttributeError` from a stub). The harness writer (D5)
+  stays — it monkey-patches `self.<dao>.<method>()` reads for entry-point
+  construction only.
+- **IO-coupled auto-seed removed** (`ai_eval/scaffold/seeder.py`): the
+  `_Stub`-driven single green-pipeline example is gone. All top-level tasks
+  now get the 5 pure-LLM shape variants; IO-coupled entry points require
+  `ai-evals bootstrap` to capture a real trace before `run` can score their
+  nodes. `seed_golden_set` no longer takes the `io_coupled_tasks` param.
+- Refactored the per-metric judge loop into `_score_one_metric` (shared by
+  the entry-level and node-level judge passes) so both use identical
+  prompt-building and gateway-call semantics.
+- Node metrics are validated on the same registry surface as entry-level
+  metrics, so a typo'd `node_metrics` name fails fast at run start
+  (`MetricNotImplementedError`, exit 1).
+
+### Fixed
+- Auto-seed no longer attempts to bind scalar inputs to object-typed params on
+  internal methods (the `_build_call_args` scalar-binding crash path is closed
+  by skipping non-top-level tasks entirely; a required non-str param it can't
+  bind raises a clear `TypeError` directing to `ai-evals bootstrap`).
+- Eliminated the `_Stub`-driven crashes (`'_Stub' object is not iterable`,
+  `RecursionError` from stubbed deps, `'str' has no attribute 'chat_id'`) by
+  removing the stub construction path entirely. Internal nodes are now scored
+  from the captured trace, never constructed/called by the runner.
+
+## [0.1.6] - 2026-07-14
 ### Added
 - `AGENTS.md` governing how AI coding agents operate on this repo (stack,
   conventions, architectural contracts, workflow).
@@ -31,11 +85,6 @@ Format based on Keep a Changelog; adheres to Semantic Versioning.
   built-in metrics only.
 - `assert_metric_implemented` error message now points to `eval/metrics.yaml`
   and `docs/metrics.md`.
-
-### Fixed
-- Auto-seed no longer attempts to bind scalar inputs to object-typed params on
-  internal methods (the `_build_call_args` scalar-binding crash path is closed
-  by skipping non-top-level tasks entirely).
 
 ## [0.1.4] - 2026-07-14
 ### Fixed

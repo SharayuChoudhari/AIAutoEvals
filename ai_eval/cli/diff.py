@@ -75,16 +75,12 @@ def diff_command(
     if task:
         deltas = {t: v for t, v in deltas.items() if t == task}
     if metric:
-        deltas = {
-            t: {m: v for m, v in v.items() if m == metric} for t, v in deltas.items()
-        }
+        deltas = {t: {m: v for m, v in v.items() if m == metric} for t, v in deltas.items()}
 
     narratives: dict[str, str] = {}
     if explain and baseline is not None:
         narratives = asyncio.run(
-            _explain_regressions(
-                opts, current, baseline, deltas, metric_filter=metric, limit=limit
-            )
+            _explain_regressions(opts, current, baseline, deltas, metric_filter=metric, limit=limit)
         )
 
     if opts.effective_format == OutputFormat.JSON:
@@ -101,9 +97,7 @@ def diff_command(
 
     exit_code = EXIT_OK
     any_regressed = any(
-        (d := row.get("delta")) is not None and d < 0
-        for t in deltas.values()
-        for row in t.values()
+        (d := row.get("delta")) is not None and d < 0 for t in deltas.values() for row in t.values()
     )
     if any_regressed:
         # informational exit 0 unless --fail-on-regression; but diff has no such

@@ -112,7 +112,8 @@ def test_enclosing_def_name_picks_tightest_enclosing_def() -> None:
     defs = find_callable_defs(tree)
     # The graph.invoke(...) call.
     call = next(
-        n for n in ast.walk(tree)
+        n
+        for n in ast.walk(tree)
         if isinstance(n, ast.Call) and getattr(n.func, "attr", None) == "invoke"
     )
     assert enclosing_def_name(call, defs) == "Workflow.run"

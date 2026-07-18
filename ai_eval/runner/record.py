@@ -53,6 +53,12 @@ class ExampleRecord(BaseModel):
     #: one-line notice ("scored against auto-seeded fixtures; run bootstrap for
     #: trustworthy baselines"). ``None`` for real captured/user examples.
     seed: str | None = None
+    #: Per-node scores keyed by synthetic ``node_id`` (e.g. ``retrieve_0``)
+    #: → ``{metric_name: score}``. Populated only when the task declares
+    #: ``node_metrics`` and the example's ``trace.calls`` expose matching nodes
+    #: (AGENTS.md §1). Backward-compatible: old ``run.json`` files with no
+    #: ``node_scores`` key load unchanged.
+    node_scores: dict[str, dict[str, float]] = Field(default_factory=dict)
 
 
 class TaskRecord(BaseModel):

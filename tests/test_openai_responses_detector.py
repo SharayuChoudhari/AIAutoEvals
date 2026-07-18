@@ -146,9 +146,7 @@ def test_responses_detector_dedups_per_enclosing_def(tmp_path: Path) -> None:
     calls = list(iter_calls(tree))
     defs = find_callable_defs(tree)
 
-    tasks = OpenAIResponsesDetector().extract(
-        tree, imports, path, tmp_path, calls=calls, defs=defs
-    )
+    tasks = OpenAIResponsesDetector().extract(tree, imports, path, tmp_path, calls=calls, defs=defs)
     assert len(tasks) == 1
     assert tasks[0].entry == "run"
 
@@ -167,9 +165,7 @@ def test_responses_detector_module_level_emits_fallback_name(tmp_path: Path) -> 
     calls = list(iter_calls(tree))
     defs = find_callable_defs(tree)
 
-    tasks = OpenAIResponsesDetector().extract(
-        tree, imports, path, tmp_path, calls=calls, defs=defs
-    )
+    tasks = OpenAIResponsesDetector().extract(tree, imports, path, tmp_path, calls=calls, defs=defs)
     assert len(tasks) == 1
     assert tasks[0].name == "service_workflow"
     assert tasks[0].entry is None
@@ -199,9 +195,7 @@ def test_responses_detector_self_client_receiver(tmp_path: Path) -> None:
     calls = list(iter_calls(tree))
     defs = find_callable_defs(tree)
 
-    tasks = OpenAIResponsesDetector().extract(
-        tree, imports, path, tmp_path, calls=calls, defs=defs
-    )
+    tasks = OpenAIResponsesDetector().extract(tree, imports, path, tmp_path, calls=calls, defs=defs)
     assert len(tasks) == 1
     assert tasks[0].type == "workflow"
     assert tasks[0].name == "Svc._call_model"
@@ -212,10 +206,7 @@ def test_responses_detector_does_not_fire_without_openai_import(tmp_path: Path) 
     """matches() gates on the openai import prefix — a bare SDK-less file
     should not be scanned even if the call shape happens to match."""
     path = tmp_path / "no_import.py"
-    source = (
-        "def f(client):\n"
-        "    return client.responses.create(input=[], tools=[])\n"
-    )
+    source = "def f(client):\n    return client.responses.create(input=[], tools=[])\n"
     path.write_text(source, encoding="utf-8")
     tree, imports = _parse(source)
     responses = OpenAIResponsesDetector()

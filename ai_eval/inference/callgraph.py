@@ -174,6 +174,7 @@ def _build_file_contexts(
 # Resolution helpers
 # ---------------------------------------------------------------------------
 
+
 def _resolve_imported_name(
     imports: list[ImportInfo], module_index: dict[str, str], name: str
 ) -> str | None:
@@ -289,6 +290,7 @@ def _resolve_module_fn_call(
 # Graph construction
 # ---------------------------------------------------------------------------
 
+
 def build_call_graph(
     root: Path, scan: ScanResult
 ) -> tuple[dict[SiteKey, set[SiteKey]], dict[str, FileContext]]:
@@ -306,8 +308,7 @@ def build_call_graph(
     # Parse the files that contain detected sites (bounded set).
     task_files = sorted({Path(t.file_path) for t in scan.tasks if t.file_path})
     abs_task_files = [
-        (root / str(p)) if not str(p).startswith("/") else Path(str(p))
-        for p in task_files
+        (root / str(p)) if not str(p).startswith("/") else Path(str(p)) for p in task_files
     ]
     contexts, module_index = _build_file_contexts(root, abs_task_files)
 

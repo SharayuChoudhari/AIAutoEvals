@@ -63,8 +63,7 @@ def init_command(
         False,
         "--force",
         help=(
-            "Overwrite existing rubrics.yaml and tests.py. "
-            "Never touches captured golden-set data."
+            "Overwrite existing rubrics.yaml and tests.py. Never touches captured golden-set data."
         ),
     ),
     reset_golden: bool = typer.Option(
@@ -108,8 +107,7 @@ def init_command(
         DEFAULT_RUBRIC_ENGINE,
         "--rubric-engine",
         help=(
-            "Rubric generation engine: rules (rule-only), slm (SLM-only), "
-            "hybrid (rules then SLM)."
+            "Rubric generation engine: rules (rule-only), slm (SLM-only), hybrid (rules then SLM)."
         ),
     ),
     rubric_model: str = typer.Option(
@@ -212,9 +210,7 @@ def init_command(
                 model=rubric_model,
                 judge_default=judge_default,
                 judge_regression=judge_regression,
-                caps=make_caps(
-                    rubric_max_snippet_chars, rubric_max_tasks, rubric_budget_tokens
-                ),
+                caps=make_caps(rubric_max_snippet_chars, rubric_max_tasks, rubric_budget_tokens),
                 hints_path=paths.hints_yaml,
             )
         except typer.Exit:
@@ -293,9 +289,7 @@ def init_command(
             model=rubric_model,
             judge_default=judge_default,
             judge_regression=judge_regression,
-            caps=make_caps(
-                rubric_max_snippet_chars, rubric_max_tasks, rubric_budget_tokens
-            ),
+            caps=make_caps(rubric_max_snippet_chars, rubric_max_tasks, rubric_budget_tokens),
             hints_path=paths.hints_yaml,
         )
     except typer.Exit:
@@ -326,33 +320,33 @@ def init_command(
         # IO-coupled tasks get a stub harness (D5): monkey-patches their
         # self.<dao>.<method>() reads with canned fixtures so `run` is green
         # without a live DB/HTTP backend. Region-split; regenerable wiring is
-        # AST-hash-gated, fixtures preserved across regenerations.
-        harness_written, io_coupled_names = write_harnesses(
+        # AST-hash-gated, fixtures preserved across regenerations. The
+        # returned IO-coupled names are not used for seeding anymore (the
+        # ``_Stub`` path is removed — AGENTS.md §1): IO-coupled entry points
+        # require ``ai-evals bootstrap`` to capture a real trace.
+        harness_written, _io_coupled_names = write_harnesses(
             rubrics, paths.eval_dir, project_root=opts.cwd
         )
         for hname, hstatus in harness_written:
-            written.append(
-                (str(paths.eval_dir.relative_to(opts.cwd) / hname), hstatus)
-            )
+            written.append((str(paths.eval_dir.relative_to(opts.cwd) / hname), hstatus))
 
         # Hybrid golden-set seeding (D6): auto-seed shape-varied inputs for
-        # pure-LLM tasks and a single green-pipeline example for IO-coupled
-        # tasks (the harness supplies canned IO). Runs after write_stub so the
-        # task keys exist; auto-seeds are marked ``seed: auto`` so they don't
-        # count as real captures for the next init's merge decision.
+        # top-level pure-LLM tasks so ``run`` produces meaningful scores
+        # immediately. IO-coupled entry points are no longer auto-seeded (the
+        # ``_Stub`` path is removed — AGENTS.md §1): they require
+        # ``ai-evals bootstrap`` to capture a real trace. Runs after
+        # write_stub so the task keys exist; auto-seeds are marked
+        # ``seed: auto`` so they don't count as real captures for the next
+        # init's merge decision.
         if rubrics.tasks:
-            seed_golden_set(
-                rubrics, paths.golden_set_json, io_coupled_names
-            )
+            seed_golden_set(rubrics, paths.golden_set_json)
 
         # Emit a commented-out hints template on first init only — never
         # overwrite a user-edited hints file (re-runs preserve edits, mirroring
         # the golden-set preservation rule).
         hints_status = write_hints_template(paths.hints_yaml)
         if hints_status is not None:
-            written.append(
-                (str(paths.hints_yaml.relative_to(opts.cwd)), hints_status)
-            )
+            written.append((str(paths.hints_yaml.relative_to(opts.cwd)), hints_status))
 
         paths.ensure_state()
         written.append((str(paths.state_dir.relative_to(opts.cwd)), "ensured"))
@@ -369,18 +363,16 @@ def init_command(
         raise typer.Exit(code=EXIT_GENERAL) from exc
 
     if opts.effective_format == OutputFormat.JSON:
-            json_dump(
-                {
-                    "files_scanned": scan.files_scanned,
-                    "elapsed_seconds": round(scan.elapsed_seconds, 3),
-                    "written": [{"path": p, "status": s} for p, s in written],
-                    "rubric_engine": rubrics.rubric_engine,
-                    "tasks": [
-                        {"name": n, "type": t, "file_path": p} for n, t, p in tasks_view
-                    ],
-                    "next": "ai-evals bootstrap -- pytest",
-                }
-            )
+        json_dump(
+            {
+                "files_scanned": scan.files_scanned,
+                "elapsed_seconds": round(scan.elapsed_seconds, 3),
+                "written": [{"path": p, "status": s} for p, s in written],
+                "rubric_engine": rubrics.rubric_engine,
+                "tasks": [{"name": n, "type": t, "file_path": p} for n, t, p in tasks_view],
+                "next": "ai-evals bootstrap -- pytest",
+            }
+        )
     else:
         render_init_summary(
             files_scanned=scan.files_scanned,

@@ -110,8 +110,7 @@ def test_basic_rag_generates_harness_for_io_coupled_task(
     IO-coupled endpoint task (it reads self.document_vector_dao)."""
     root = _basic_rag_repo(tmp_path)
     result = runner.invoke(
-        app, ["-C", str(root), "--format", "json", "init", "--force",
-              "--rubric-engine", "rules"]
+        app, ["-C", str(root), "--format", "json", "init", "--force", "--rubric-engine", "rules"]
     )
     assert result.exit_code == 0, result.stderr or result.output
     eval_dir = root / "eval"
@@ -149,7 +148,9 @@ def test_basic_rag_run_produces_non_empty_seed_auto_result(
     # Stub the openai module so the import doesn't need the real package.
     import sys
     import types
+
     fake_oai = types.ModuleType("openai")
+
     class _FakeOpenAI:
         def __init__(self, **kw):
             self.chat = types.SimpleNamespace(
@@ -157,20 +158,21 @@ def test_basic_rag_run_produces_non_empty_seed_auto_result(
                     create=lambda **kw: {"choices": [{"message": {"content": "ok"}}]}
                 )
             )
+
     fake_oai.OpenAI = _FakeOpenAI  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "openai", fake_oai)
 
     # Fake the judge so no network is hit.
     async def complete_fn(*, model, messages, response_model, temperature=0.0):
-        return response_model.model_validate(
-            {"score": 0.9, "rationale": "ok", "sub_scores": {}}
-        )
+        return response_model.model_validate({"score": 0.9, "rationale": "ok", "sub_scores": {}})
+
     import ai_eval.judge.gateway as gw
+
     monkeypatch.setattr(gw, "_default_complete", complete_fn)
 
     init_result = runner.invoke(
-        app, ["-C", str(tmp_path), "--format", "json", "init", "--force",
-              "--rubric-engine", "rules"]
+        app,
+        ["-C", str(tmp_path), "--format", "json", "init", "--force", "--rubric-engine", "rules"],
     )
     assert init_result.exit_code == 0, init_result.stderr or init_result.output
     # A harness should be generated for the IO-coupled task.
@@ -183,26 +185,24 @@ def test_basic_rag_run_produces_non_empty_seed_auto_result(
     )
     harness_path.write_text(content, encoding="utf-8")
 
-    # The golden set should have a single auto-seeded example (IO-coupled).
+    # The golden set should have auto-seeded examples for the top-level task.
+    # Under the new model (AGENTS.md §1), all top-level tasks get the 5
+    # pure-LLM shape variants — the IO-coupled single-green-pipeline branch
+    # was removed (the ``_Stub`` path is gone; IO-coupled entries need a
+    # harness or bootstrap).
     golden = json.loads((tmp_path / "eval" / "golden_set.json").read_text())
     import yaml
-    rubrics_data = yaml.safe_load(
-        (tmp_path / "eval" / "rubrics.yaml").read_text()
-    )
+
+    rubrics_data = yaml.safe_load((tmp_path / "eval" / "rubrics.yaml").read_text())
     task_name = next(
-        n for n, spec in rubrics_data["tasks"].items()
-        if "process" in spec.get("entry", "")
+        n for n, spec in rubrics_data["tasks"].items() if "process" in spec.get("entry", "")
     )
     examples = golden["tasks"].get(task_name, [])
-    assert len(examples) == 1
-    assert examples[0].get("seed") == "auto"
+    assert len(examples) == 5
+    assert all(e.get("seed") == "auto" for e in examples)
 
-    run_result = runner.invoke(
-        app, ["-C", str(tmp_path), "--format", "json", "run"]
-    )
-    assert run_result.exit_code == 0, (
-        f"run failed: {run_result.stderr or run_result.output}"
-    )
+    run_result = runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "run"])
+    assert run_result.exit_code == 0, f"run failed: {run_result.stderr or run_result.output}"
     assert run_result.stdout, "run produced empty stdout"
     payload = json.loads(run_result.stdout)
     assert payload["summary"]["examples"] >= 1, payload
@@ -212,6 +212,7 @@ def test_basic_rag_run_produces_non_empty_seed_auto_result(
 # ---------------------------------------------------------------------------
 # Edge-case fixtures (plan §8)
 # ---------------------------------------------------------------------------
+
 
 def test_shared_helper_called_by_two_endpoints_both_promoted(tmp_path: Path) -> None:
     """Two endpoints (each with its own detected framework call) also call a
@@ -308,8 +309,7 @@ def test_orphan_no_root_repo_clean_exit(tmp_path: Path) -> None:
     """A pure-library repo with no detected framework calls produces an empty
     rubrics config and classifies to ``custom`` — clean exit, no crash."""
     (tmp_path / "lib.py").write_text(
-        "def add(a, b):\n"
-        "    return a + b\n",
+        "def add(a, b):\n    return a + b\n",
         encoding="utf-8",
     )
     scan = scan_repo(tmp_path)

@@ -15,6 +15,7 @@ from ai_eval.runner.record import GitMeta
 def collect_git_meta(cwd: Path) -> GitMeta | None:
     """Return ``GitMeta`` or ``None`` if not a repo / git missing."""
     try:
+
         def _git(*args: str) -> str:
             r = subprocess.run(
                 ["git", *args],

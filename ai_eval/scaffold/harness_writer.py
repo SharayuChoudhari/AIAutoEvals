@@ -120,9 +120,7 @@ def _is_stub_target(ctor_name: str | None) -> bool:
     return True
 
 
-def classify_io_coupled(
-    task: TaskSpec, contexts: dict[str, FileContext]
-) -> list[IOAttr]:
+def classify_io_coupled(task: TaskSpec, contexts: dict[str, FileContext]) -> list[IOAttr]:
     """Return the list of stubbable ``self.<attr>.<method>()`` read sites in the
     task's resolved method body. Empty list ⇒ pure-LLM (not IO-coupled).
 
@@ -314,6 +312,7 @@ def render_harness(spec: HarnessSpec, *, existing_region2: str | None = None) ->
 # Sidecar hash extraction (region-1 regeneration gate)
 # ---------------------------------------------------------------------------
 
+
 def _existing_body_hash(path: Path) -> str | None:
     """Read the sidecar ``# ast-hash: <hash>`` from an existing harness file."""
     if not path.is_file():
@@ -341,6 +340,7 @@ def _existing_region2(path: Path) -> str | None:
 # Public write API
 # ---------------------------------------------------------------------------
 
+
 def write_harnesses(
     rubrics: RubricsConfig,
     eval_dir: Path,
@@ -360,23 +360,26 @@ def write_harnesses(
     """
     # Build file contexts for the task files (reuses the callgraph parser so
     # the AST + __init__ tracking is consistent with D4 classification).
-    task_files = sorted(
-        {Path(t.file_path) for t in rubrics.tasks.values() if t.file_path}
-    )
+    task_files = sorted({Path(t.file_path) for t in rubrics.tasks.values() if t.file_path})
     from ai_eval.inference.ast_scan import ScanResult
     from ai_eval.inference.detectors.base import DetectedTask
 
     # Minimal scan to populate contexts: build_call_graph needs a ScanResult.
     dummy_tasks = [
         DetectedTask(
-            name=n, framework="unknown", type=d.type,
-            file_path=d.file_path, entry=d.entry,
+            name=n,
+            framework="unknown",
+            type=d.type,
+            file_path=d.file_path,
+            entry=d.entry,
         )
         for n, d in rubrics.tasks.items()
     ]
     scan = ScanResult(
-        files_scanned=len(task_files), elapsed_seconds=0.0,
-        tasks=dummy_tasks, frameworks_seen=set(),
+        files_scanned=len(task_files),
+        elapsed_seconds=0.0,
+        tasks=dummy_tasks,
+        frameworks_seen=set(),
     )
     _, contexts = build_call_graph(project_root, scan)
 

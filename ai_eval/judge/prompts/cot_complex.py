@@ -43,12 +43,10 @@ def build(
     user_lines.append("input: " + json.dumps(input, default=str, ensure_ascii=False))
     user_lines.append("output: " + json.dumps(output, default=str, ensure_ascii=False))
     if expected is not None:
-        user_lines.append(
-            "expected: " + json.dumps(expected, default=str, ensure_ascii=False)
-        )
+        user_lines.append("expected: " + json.dumps(expected, default=str, ensure_ascii=False))
     user_lines.append(
-        "Produce JSON: {\"score\": float, \"rationale\": str, "
-        "\"sub_scores\": {\"" + scored_dimension + "\": float}}"
+        'Produce JSON: {"score": float, "rationale": str, '
+        '"sub_scores": {"' + scored_dimension + '": float}}'
     )
     return [
         {"role": "system", "content": system},

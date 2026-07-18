@@ -32,9 +32,7 @@ class ValidationReport:
     @property
     def has_issues(self) -> bool:
         return bool(
-            self.dropped_tasks
-            or self.cleared_entries
-            or self.rag_misclassification_warnings
+            self.dropped_tasks or self.cleared_entries or self.rag_misclassification_warnings
         )
 
     def warnings(self) -> list[str]:

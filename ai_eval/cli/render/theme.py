@@ -11,12 +11,12 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class State:
     icon: str
-    color: str       # rich style name
+    color: str  # rich style name
     label: str
 
 
-PASS = State(icon="\u2713", color="green", label="pass")           # ✓
-FAIL = State(icon="\u2717", color="red", label="fail")             # ✗
+PASS = State(icon="\u2713", color="green", label="pass")  # ✓
+FAIL = State(icon="\u2717", color="red", label="fail")  # ✗
 INFO = State(icon="-", color="bright_black", label="info")
 SKIP = State(icon="-", color="yellow", label="skip")
 # WARN, IDENT, LINK intentionally omitted until a rendering phase uses them.

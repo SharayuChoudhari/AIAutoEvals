@@ -57,9 +57,7 @@ def test_wrap_dotted_sync_method_rebinds_on_class(shim_ns, monkeypatch, tmp_path
     instance call goes through the wrapper and records enter/exit-task."""
     # Write a user module with a class + sync method.
     (tmp_path / "svc.py").write_text(
-        "class Svc:\n"
-        "    def process(self, q):\n"
-        "        return q + 1\n",
+        "class Svc:\n    def process(self, q):\n        return q + 1\n",
         encoding="utf-8",
     )
     monkeypatch.syspath_prepend(str(tmp_path))
@@ -84,8 +82,7 @@ def test_wrap_dotted_sync_method_rebinds_on_class(shim_ns, monkeypatch, tmp_path
 def test_wrap_bare_function_rebinds_on_module(shim_ns, monkeypatch, tmp_path):
     """A bare ``fn`` entry rebinds on the module (unchanged behavior)."""
     (tmp_path / "mod.py").write_text(
-        "def run(q):\n"
-        "    return q * 2\n",
+        "def run(q):\n    return q * 2\n",
         encoding="utf-8",
     )
     monkeypatch.syspath_prepend(str(tmp_path))
@@ -107,9 +104,7 @@ def test_wrap_dotted_async_method_awaits(shim_ns, monkeypatch, tmp_path):
     async wrapper that awaits the coroutine, so the task records enter/exit
     and the awaited result is returned (not a coroutine object)."""
     (tmp_path / "async_svc.py").write_text(
-        "class Svc:\n"
-        "    async def process(self, q):\n"
-        "        return q + 1\n",
+        "class Svc:\n    async def process(self, q):\n        return q + 1\n",
         encoding="utf-8",
     )
     monkeypatch.syspath_prepend(str(tmp_path))
@@ -139,8 +134,7 @@ def test_wrap_entry_no_file_path_is_noop(shim_ns):
 def test_wrap_entry_missing_entry_falls_back_to_main(shim_ns, monkeypatch, tmp_path):
     """A spec with ``entry=None`` falls back to ``main`` (the documented default)."""
     (tmp_path / "main_mod.py").write_text(
-        "def main(q):\n"
-        "    return q\n",
+        "def main(q):\n    return q\n",
         encoding="utf-8",
     )
     monkeypatch.syspath_prepend(str(tmp_path))

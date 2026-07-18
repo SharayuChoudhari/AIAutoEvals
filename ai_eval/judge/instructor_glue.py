@@ -50,6 +50,7 @@ def get_async_client() -> Any:
         litellm.set_verbose = False
         litellm.suppress_debug_messages = True
         import logging as _logging
+
         for _n in ("LiteLLM", "LiteLLM Router", "LiteLLM Proxy"):
             _logging.getLogger(_n).setLevel(_logging.WARNING)
     except Exception:

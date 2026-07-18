@@ -10,12 +10,12 @@ def _run_record(tasks):
 
 
 def test_compute_delta_basic() -> None:
-    current = _run_record({
-        "t": {"metrics": {"m1": {"score": 0.8, "threshold": 0.5, "status": "pass"}}}
-    })
-    baseline = _run_record({
-        "t": {"metrics": {"m1": {"score": 0.9, "threshold": 0.5, "status": "pass"}}}
-    })
+    current = _run_record(
+        {"t": {"metrics": {"m1": {"score": 0.8, "threshold": 0.5, "status": "pass"}}}}
+    )
+    baseline = _run_record(
+        {"t": {"metrics": {"m1": {"score": 0.9, "threshold": 0.5, "status": "pass"}}}}
+    )
     deltas = compute_delta(current, baseline)
     row = deltas["t"]["m1"]
     assert row["delta"] is not None
@@ -25,9 +25,7 @@ def test_compute_delta_basic() -> None:
 
 
 def test_compute_delta_no_baseline() -> None:
-    current = _run_record({
-        "t": {"metrics": {"m1": {"score": 0.8}}}
-    })
+    current = _run_record({"t": {"metrics": {"m1": {"score": 0.8}}}})
     deltas = compute_delta(current, None)
     assert deltas["t"]["m1"]["delta"] is None
     assert deltas["t"]["m1"]["baseline_score"] is None
@@ -48,14 +46,18 @@ def test_compute_delta_missing_score() -> None:
 
 
 def test_compute_delta_multiple_tasks() -> None:
-    current = _run_record({
-        "t1": {"metrics": {"m": {"score": 0.5}}},
-        "t2": {"metrics": {"m": {"score": 0.6}}},
-    })
-    baseline = _run_record({
-        "t1": {"metrics": {"m": {"score": 0.5}}},
-        "t2": {"metrics": {"m": {"score": 0.6}}},
-    })
+    current = _run_record(
+        {
+            "t1": {"metrics": {"m": {"score": 0.5}}},
+            "t2": {"metrics": {"m": {"score": 0.6}}},
+        }
+    )
+    baseline = _run_record(
+        {
+            "t1": {"metrics": {"m": {"score": 0.5}}},
+            "t2": {"metrics": {"m": {"score": 0.6}}},
+        }
+    )
     deltas = compute_delta(current, baseline)
     assert deltas["t1"]["m"]["delta"] == 0.0
     assert deltas["t2"]["m"]["delta"] == 0.0

@@ -40,16 +40,19 @@ def test_parse_hints_empty_file_is_empty(tmp_path: Path) -> None:
 
 def test_parse_hints_loads_valid(tmp_path: Path) -> None:
     path = tmp_path / "h.yaml"
-    _write_hints(path, [
-        {
-            "name": "book_appointment",
-            "file_path": "services/wf.py",
-            "entry": "Wf.run",
-            "type": "workflow",
-            "inputs": ["message_text"],
-            "outputs": ["reply_text"],
-        }
-    ])
+    _write_hints(
+        path,
+        [
+            {
+                "name": "book_appointment",
+                "file_path": "services/wf.py",
+                "entry": "Wf.run",
+                "type": "workflow",
+                "inputs": ["message_text"],
+                "outputs": ["reply_text"],
+            }
+        ],
+    )
     hints = parse_hints(path)
     assert len(hints.tasks) == 1
     h = hints.tasks[0]
@@ -75,9 +78,7 @@ def test_parse_hints_rejects_bad_name(tmp_path: Path) -> None:
 
 def test_parse_hints_rejects_extra_keys(tmp_path: Path) -> None:
     path = tmp_path / "h.yaml"
-    _write_hints(path, [
-        {"name": "ok", "file_path": "f.py", "type": "workflow", "unknown": 1}
-    ])
+    _write_hints(path, [{"name": "ok", "file_path": "f.py", "type": "workflow", "unknown": 1}])
     with pytest.raises(ValidationError):
         parse_hints(path)
 
@@ -99,15 +100,28 @@ def test_merge_hints_empty_tasks_returns_scan_unchanged(tmp_path: Path) -> None:
 def test_merge_hints_fills_gap_when_no_ast_match(tmp_path: Path) -> None:
     """A hint with a file_path/entry that no AST detector found is appended."""
     path = tmp_path / "h.yaml"
-    _write_hints(path, [
-        {"name": "temporal_workflow", "file_path": "wf/run.py", "entry": "run", "type": "workflow"}
-    ])
-    scan = _scan([
-        DetectedTask(
-            name="chat_a", framework="openai", type="chat",
-            file_path="other.py", entry="other",
-        )
-    ])
+    _write_hints(
+        path,
+        [
+            {
+                "name": "temporal_workflow",
+                "file_path": "wf/run.py",
+                "entry": "run",
+                "type": "workflow",
+            }
+        ],
+    )
+    scan = _scan(
+        [
+            DetectedTask(
+                name="chat_a",
+                framework="openai",
+                type="chat",
+                file_path="other.py",
+                entry="other",
+            )
+        ]
+    )
     out = merge_hints(scan, path)
     assert len(out.tasks) == 2
     hint_task = next(t for t in out.tasks if t.framework == "hint")
@@ -123,15 +137,20 @@ def test_merge_hints_ast_wins_on_collision(tmp_path: Path) -> None:
     wins — the hint is dropped, not merged, so we never get two tasks for
     the same entry point."""
     path = tmp_path / "h.yaml"
-    _write_hints(path, [
-        {"name": "hint_run", "file_path": "wf.py", "entry": "run", "type": "workflow"}
-    ])
-    scan = _scan([
-        DetectedTask(
-            name="ast_run", framework="openai", type="workflow",
-            file_path="wf.py", entry="run",
-        )
-    ])
+    _write_hints(
+        path, [{"name": "hint_run", "file_path": "wf.py", "entry": "run", "type": "workflow"}]
+    )
+    scan = _scan(
+        [
+            DetectedTask(
+                name="ast_run",
+                framework="openai",
+                type="workflow",
+                file_path="wf.py",
+                entry="run",
+            )
+        ]
+    )
     out = merge_hints(scan, path)
     # Only the AST task survives.
     assert len(out.tasks) == 1
@@ -142,10 +161,13 @@ def test_merge_hints_ast_wins_on_collision(tmp_path: Path) -> None:
 def test_merge_hints_same_file_different_entries_both_kept(tmp_path: Path) -> None:
     """Two hints on the same file but different entries don't collide."""
     path = tmp_path / "h.yaml"
-    _write_hints(path, [
-        {"name": "book", "file_path": "wf.py", "entry": "book_intent", "type": "workflow"},
-        {"name": "cancel", "file_path": "wf.py", "entry": "cancel_intent", "type": "workflow"},
-    ])
+    _write_hints(
+        path,
+        [
+            {"name": "book", "file_path": "wf.py", "entry": "book_intent", "type": "workflow"},
+            {"name": "cancel", "file_path": "wf.py", "entry": "cancel_intent", "type": "workflow"},
+        ],
+    )
     scan = _scan([])
     out = merge_hints(scan, path)
     assert len(out.tasks) == 2
@@ -157,10 +179,18 @@ def test_merge_hints_per_intent_split_on_one_entry(tmp_path: Path) -> None:
     but distinct names all stay as separate tasks (the AST-wins rule only
     applies to AST-vs-hint collisions, not hint-vs-hint)."""
     path = tmp_path / "h.yaml"
-    _write_hints(path, [
-        {"name": "book_appointment", "file_path": "wf.py", "entry": "run", "type": "workflow"},
-        {"name": "cancel_appointment", "file_path": "wf.py", "entry": "run", "type": "workflow"},
-    ])
+    _write_hints(
+        path,
+        [
+            {"name": "book_appointment", "file_path": "wf.py", "entry": "run", "type": "workflow"},
+            {
+                "name": "cancel_appointment",
+                "file_path": "wf.py",
+                "entry": "run",
+                "type": "workflow",
+            },
+        ],
+    )
     scan = _scan([])
     out = merge_hints(scan, path)
     assert len(out.tasks) == 2
@@ -171,15 +201,20 @@ def test_merge_hints_module_level_entry_none(tmp_path: Path) -> None:
     """A hint with entry=None (module-level) collides with an AST task that
     also has entry=None on the same file_path — AST still wins."""
     path = tmp_path / "h.yaml"
-    _write_hints(path, [
-        {"name": "hint_mod", "file_path": "mod.py", "entry": None, "type": "workflow"}
-    ])
-    scan = _scan([
-        DetectedTask(
-            name="ast_mod", framework="openai", type="workflow",
-            file_path="mod.py", entry=None,
-        )
-    ])
+    _write_hints(
+        path, [{"name": "hint_mod", "file_path": "mod.py", "entry": None, "type": "workflow"}]
+    )
+    scan = _scan(
+        [
+            DetectedTask(
+                name="ast_mod",
+                framework="openai",
+                type="workflow",
+                file_path="mod.py",
+                entry=None,
+            )
+        ]
+    )
     out = merge_hints(scan, path)
     assert len(out.tasks) == 1
     assert out.tasks[0].name == "ast_mod"
@@ -188,9 +223,7 @@ def test_merge_hints_module_level_entry_none(tmp_path: Path) -> None:
 def test_merge_hints_preserves_scan_metadata(tmp_path: Path) -> None:
     """The merged ScanResult reuses the input's files_scanned/elapsed."""
     path = tmp_path / "h.yaml"
-    _write_hints(path, [
-        {"name": "h", "file_path": "x.py", "entry": "f", "type": "workflow"}
-    ])
+    _write_hints(path, [{"name": "h", "file_path": "x.py", "entry": "f", "type": "workflow"}])
     scan = ScanResult(
         files_scanned=42,
         elapsed_seconds=1.5,

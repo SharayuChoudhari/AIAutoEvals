@@ -91,9 +91,7 @@ def _check_provider_creds() -> tuple[bool, str]:
     return False, "no provider creds found (set OPENAI_API_KEY or run `ollama serve`)"
 
 
-def _check_judge_gateway(
-    cwd: Path, config_path: Path | None
-) -> tuple[bool, str]:
+def _check_judge_gateway(cwd: Path, config_path: Path | None) -> tuple[bool, str]:
     """Best-effort ping of ``judge.default``. Optional/required=False.
 
     A failure here is informational — it warns without forcing exit 1 unless

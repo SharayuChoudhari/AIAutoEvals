@@ -86,9 +86,7 @@ def vectorstore_imported(imports: list[ImportInfo]) -> bool:
     )
 
 
-def receiver_is_vectorstore_like(
-    chain: list[str], call: ast.Call | None = None
-) -> bool:
+def receiver_is_vectorstore_like(chain: list[str], call: ast.Call | None = None) -> bool:
     """Heuristic: does the receiver name look like a vectorstore binding?
 
     Matches a local binding whose name hints at a vectorstore (e.g.
@@ -121,9 +119,7 @@ def receiver_is_vectorstore_like(
     if any(hint in head for hint in VECTORSTORE_NAME_HINTS):
         return True
     # Head already checked above; scan the rest of the chain.
-    return any(
-        hint in part for part in chain[1:] for hint in VECTORSTORE_NAME_HINTS
-    )
+    return any(hint in part for part in chain[1:] for hint in VECTORSTORE_NAME_HINTS)
 
 
 def is_retriever_call_site(chain: list[str], call: ast.Call | None = None) -> bool:
@@ -133,9 +129,7 @@ def is_retriever_call_site(chain: list[str], call: ast.Call | None = None) -> bo
     last = chain[-1]
     if last in RETRIEVER_METHODS:
         return True
-    if last in VECTORSTORE_SEARCH_METHODS and receiver_is_vectorstore_like(
-        chain, call
-    ):
+    if last in VECTORSTORE_SEARCH_METHODS and receiver_is_vectorstore_like(chain, call):
         return True
     return False
 

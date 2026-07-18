@@ -43,9 +43,7 @@ def judge_command(
     # Exactly one mode; default to --list when none given.
     modes = sum(bool(x) for x in (list_models, ping is not None, prompt is not None))
     if modes > 1:
-        typer.echo(
-            "error: --list, --ping, and --prompt are mutually exclusive", err=True
-        )
+        typer.echo("error: --list, --ping, and --prompt are mutually exclusive", err=True)
         raise typer.Exit(code=EXIT_USAGE)
     if prompt is not None and model is None and default_model is None:
         typer.echo(

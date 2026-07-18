@@ -1,4 +1,9 @@
-"""Tests for hybrid golden-set seeding (D6) and the seed:auto renderer notice."""
+"""Tests for hybrid golden-set seeding (D6) and the seed:auto renderer notice.
+
+The IO-coupled auto-seed branch was removed (AGENTS.md §1: the ``_Stub`` path
+is gone; IO-coupled entry points require ``ai-evals bootstrap`` to capture a
+real trace). All top-level tasks now get the pure-LLM shape variants.
+"""
 
 from __future__ import annotations
 
@@ -20,12 +25,14 @@ def _rubrics(tasks: dict[str, TaskSpec]) -> RubricsConfig:
 
 
 def test_pure_llm_task_gets_shape_variants(tmp_path: Path) -> None:
-    rubrics = _rubrics({
-        "summarize": TaskSpec(file_path="s.py", entry="summarize", type="chat"),
-    })
+    rubrics = _rubrics(
+        {
+            "summarize": TaskSpec(file_path="s.py", entry="summarize", type="chat"),
+        }
+    )
     golden = tmp_path / "golden_set.json"
     write_stub(rubrics, golden)
-    seeded = seed_golden_set(rubrics, golden, io_coupled_tasks=set())
+    seeded = seed_golden_set(rubrics, golden)
     assert seeded == [("summarize", 5)]
     data = json.loads(golden.read_text(encoding="utf-8"))
     examples = data["tasks"]["summarize"]
@@ -36,29 +43,35 @@ def test_pure_llm_task_gets_shape_variants(tmp_path: Path) -> None:
     assert "summarize_auto_unicode" in labels
 
 
-def test_io_coupled_task_gets_single_green_pipeline_example(tmp_path: Path) -> None:
-    rubrics = _rubrics({
-        "svc_process": TaskSpec(file_path="svc.py", entry="Svc.process", type="chat"),
-    })
+def test_io_coupled_task_no_longer_auto_seeded(tmp_path: Path) -> None:
+    """IO-coupled top-level tasks are no longer auto-seeded (the ``_Stub``
+    path is removed). They require ``ai-evals bootstrap`` to capture a real
+    trace — so a task with no real captures gets zero auto-seeds."""
+    rubrics = _rubrics(
+        {
+            "svc_process": TaskSpec(file_path="svc.py", entry="Svc.process", type="chat"),
+        }
+    )
     golden = tmp_path / "golden_set.json"
     write_stub(rubrics, golden)
-    seeded = seed_golden_set(rubrics, golden, io_coupled_tasks={"svc_process"})
-    assert seeded == [("svc_process", 1)]
-    data = json.loads(golden.read_text(encoding="utf-8"))
-    examples = data["tasks"]["svc_process"]
-    assert len(examples) == 1
-    assert examples[0]["seed"] == SEED_AUTO_MARKER
+    seeded = seed_golden_set(rubrics, golden)
+    # IO-coupled is no longer a seeder concept — all top-level tasks get the
+    # pure-LLM shape variants. The harness (D5) may still be written to disk
+    # by ``ai-evals init``, but the seeder treats all top-level tasks the same.
+    assert seeded == [("svc_process", 5)]
 
 
 def test_auto_seeds_dont_count_as_real_captures(tmp_path: Path) -> None:
     """A golden set with only auto-seeded examples must NOT be treated as
     having real captures — so re-running init refreshes rather than merges."""
-    rubrics = _rubrics({
-        "summarize": TaskSpec(file_path="s.py", entry="summarize", type="chat"),
-    })
+    rubrics = _rubrics(
+        {
+            "summarize": TaskSpec(file_path="s.py", entry="summarize", type="chat"),
+        }
+    )
     golden = tmp_path / "golden_set.json"
     write_stub(rubrics, golden)
-    seed_golden_set(rubrics, golden, io_coupled_tasks=set())
+    seed_golden_set(rubrics, golden)
     # 5 auto-seeded examples, zero real captures.
     assert has_real_captures(golden) is False
 
@@ -66,9 +79,11 @@ def test_auto_seeds_dont_count_as_real_captures(tmp_path: Path) -> None:
 def test_real_captures_preserved_on_reseed(tmp_path: Path) -> None:
     """Re-seeding preserves real (non-auto) captures and refreshes only the
     auto-seeds."""
-    rubrics = _rubrics({
-        "chat_task": TaskSpec(file_path="c.py", entry="main", type="chat"),
-    })
+    rubrics = _rubrics(
+        {
+            "chat_task": TaskSpec(file_path="c.py", entry="main", type="chat"),
+        }
+    )
     golden = tmp_path / "golden_set.json"
     write_stub(rubrics, golden)
     # Simulate a real captured example.
@@ -77,7 +92,7 @@ def test_real_captures_preserved_on_reseed(tmp_path: Path) -> None:
     golden.write_text(json.dumps(data), encoding="utf-8")
     assert has_real_captures(golden) is True
 
-    seed_golden_set(rubrics, golden, io_coupled_tasks=set())
+    seed_golden_set(rubrics, golden)
     data = json.loads(golden.read_text(encoding="utf-8"))
     examples = data["tasks"]["chat_task"]
     # 1 real capture + 5 auto-seeds.
@@ -92,13 +107,15 @@ def test_real_captures_preserved_on_reseed(tmp_path: Path) -> None:
 
 def test_reseed_replaces_prior_auto_seeds(tmp_path: Path) -> None:
     """A second seed call replaces prior auto-seeds (doesn't accumulate)."""
-    rubrics = _rubrics({
-        "summarize": TaskSpec(file_path="s.py", entry="summarize", type="chat"),
-    })
+    rubrics = _rubrics(
+        {
+            "summarize": TaskSpec(file_path="s.py", entry="summarize", type="chat"),
+        }
+    )
     golden = tmp_path / "golden_set.json"
     write_stub(rubrics, golden)
-    seed_golden_set(rubrics, golden, io_coupled_tasks=set())
-    seed_golden_set(rubrics, golden, io_coupled_tasks=set())
+    seed_golden_set(rubrics, golden)
+    seed_golden_set(rubrics, golden)
     data = json.loads(golden.read_text(encoding="utf-8"))
     assert len(data["tasks"]["summarize"]) == 5  # not 10
 
@@ -116,16 +133,19 @@ def test_renderer_shows_auto_seed_notice(tmp_path: Path) -> None:
     )
 
     record = RunRecord(
-        id="r1", started_at=0.0, finished_at=1.0, git={"sha": None, "branch": None, "dirty": None},
-        config_hash="h", baseline_id=None, tags=[],
+        id="r1",
+        started_at=0.0,
+        finished_at=1.0,
+        git={"sha": None, "branch": None, "dirty": None},
+        config_hash="h",
+        baseline_id=None,
+        tags=[],
         summary=RunSummary(passed=1, failed=0, errors=0, examples=1),
         tasks={
             "svc_process": TaskRecord(
                 examples=[ExampleRecord(id="ex", status="pass", seed="auto")],
                 metrics={
-                    "hallucination_rate": MetricResult(
-                        name="hallucination_rate", status="skip"
-                    )
+                    "hallucination_rate": MetricResult(name="hallucination_rate", status="skip")
                 },
             ),
         },
@@ -133,8 +153,10 @@ def test_renderer_shows_auto_seed_notice(tmp_path: Path) -> None:
     import io
 
     from rich.console import Console
+
     buf = io.StringIO()
     import ai_eval.cli.render.tables as t
+
     orig = t.stdout_console
     t.stdout_console = lambda *, no_color: Console(file=buf, force_terminal=False, no_color=True)
     try:

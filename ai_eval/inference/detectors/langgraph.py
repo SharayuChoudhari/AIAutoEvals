@@ -95,15 +95,14 @@ class LangGraphDetector(Detector):
             if not is_run and not is_compile and not is_stategraph:
                 continue
             entry = enclosing_def_name(call, _defs)
-            by_func.setdefault(entry, []).append(
-                (call, chain, is_run, is_compile, is_stategraph)
-            )
+            by_func.setdefault(entry, []).append((call, chain, is_run, is_compile, is_stategraph))
 
         out: list[DetectedTask] = []
         seen: set[str] = set()
         for entry, items in by_func.items():
             has_construction = any(
-                it[4] or it[3] for it in items  # stategraph or compile
+                it[4] or it[3]
+                for it in items  # stategraph or compile
             )
             # Prefer to emit on a run call when construction evidence exists in
             # the same function. Fall back to a compile call (still gated by
@@ -131,9 +130,7 @@ class LangGraphDetector(Detector):
                     entry=entry,
                     inputs=["state"],
                     outputs=["state"],
-                    evidence=[
-                        f"langgraph {'.'.join(emit_chain)} at {rel}:{emit_call.lineno}"
-                    ],
+                    evidence=[f"langgraph {'.'.join(emit_chain)} at {rel}:{emit_call.lineno}"],
                 )
             )
         return out

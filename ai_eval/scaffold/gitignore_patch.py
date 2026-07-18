@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-_BLOCK = (
-    "\n# ai-evals: eval/ is checked in; .ai-evals/ is local cache\n.ai-evals/\n"
-)
+_BLOCK = "\n# ai-evals: eval/ is checked in; .ai-evals/ is local cache\n.ai-evals/\n"
 
 
 def ensure_gitignored(gitignore: Path) -> bool:

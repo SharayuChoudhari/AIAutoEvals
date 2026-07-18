@@ -37,10 +37,7 @@ def test_appointment_workflow_responses_auto_detects(
     assert "workflow" in types
     # The Responses-driven task on _call_model is auto-detected as a dotted
     # method entry (Class.method form from find_callable_defs).
-    responses_wf = [
-        t for t in result.tasks
-        if t.type == "workflow" and t.framework == "openai"
-    ]
+    responses_wf = [t for t in result.tasks if t.type == "workflow" and t.framework == "openai"]
     assert len(responses_wf) == 1
     assert responses_wf[0].entry == "ConversationWorkflowService._call_model"
     # The graph.invoke in run() is NOT auto-detected (no construction in same def).
@@ -56,18 +53,20 @@ def test_appointment_workflow_hints_fill_graph_gap(
     hints_path = appointment_workflow_repo / "eval" / "ai-evals.hints.yaml"
     hints_path.parent.mkdir(parents=True)
     hints_path.write_text(
-        yaml.safe_dump({
-            "tasks": [
-                {
-                    "name": "conversation_workflow",
-                    "file_path": "services/conversation_workflow_service.py",
-                    "entry": "run",
-                    "type": "workflow",
-                    "inputs": ["state"],
-                    "outputs": ["state"],
-                }
-            ]
-        }),
+        yaml.safe_dump(
+            {
+                "tasks": [
+                    {
+                        "name": "conversation_workflow",
+                        "file_path": "services/conversation_workflow_service.py",
+                        "entry": "run",
+                        "type": "workflow",
+                        "inputs": ["state"],
+                        "outputs": ["state"],
+                    }
+                ]
+            }
+        ),
         encoding="utf-8",
     )
     scan = scan_repo(appointment_workflow_repo)

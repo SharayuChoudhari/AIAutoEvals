@@ -153,8 +153,7 @@ def test_judge_code_hint_glob_excludes(tmp_path: Path) -> None:
     the J1/J2/J3 signals firing."""
     (tmp_path / "custom_judge").mkdir()
     (tmp_path / "custom_judge" / "scorer.py").write_text(
-        "def score(q, a):\n"
-        "    return 0.5\n",
+        "def score(q, a):\n    return 0.5\n",
         encoding="utf-8",
     )
     (tmp_path / "app.py").write_text(
@@ -211,9 +210,7 @@ def test_call_graph_demotion_drops_reached_internal_node(tmp_path: Path) -> None
     dropped; the endpoint is the sole task."""
     (tmp_path / "layers").mkdir()
     (tmp_path / "layers" / "dao.py").write_text(
-        "class DAO:\n"
-        "    def search(self, q):\n"
-        "        return q\n",
+        "class DAO:\n    def search(self, q):\n        return q\n",
         encoding="utf-8",
     )
     (tmp_path / "services").mkdir()
@@ -242,8 +239,7 @@ def test_hints_yaml_round_trip_judge_code_and_force_task(tmp_path: Path) -> None
     survives even though it lives under a judge_code glob."""
     (tmp_path / "evals").mkdir()
     (tmp_path / "evals" / "judge.py").write_text(
-        "def score(a):\n"
-        "    return a\n",
+        "def score(a):\n    return a\n",
         encoding="utf-8",
     )
     (tmp_path / "app.py").write_text(

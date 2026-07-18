@@ -61,8 +61,7 @@ class LangChainDetector(Detector):
         _defs = defs if defs is not None else find_callable_defs(tree)
         rel = file_path.relative_to(project_root).as_posix()
         agentic = any(
-            info.name in _AGENTIC_HINTS or info.module.endswith("agents")
-            for info in imports
+            info.name in _AGENTIC_HINTS or info.module.endswith("agents") for info in imports
         )
         retriever_imports = (
             any(info.name == "as_retriever" for info in imports)
@@ -84,9 +83,7 @@ class LangChainDetector(Detector):
             # Compute the cheap test first and only run the retriever heuristic
             # when this isn't already an invoke/run/stream call.
             invoke_call = last in _INVOKE_METHODS
-            retriever_call = (
-                is_retriever_call_site(chain, call) if not invoke_call else False
-            )
+            retriever_call = is_retriever_call_site(chain, call) if not invoke_call else False
             # Emit on a chain invoke/run/stream call OR a direct retrieval
             # call site (similarity_search / get_relevant_documents) whose
             # method name isn't an invoke verb.

@@ -48,16 +48,24 @@ def test_delta_none_when_no_baseline() -> None:
 
 def test_fail_on_regression_triggers_on_drop_beyond_tolerance() -> None:
     ev = evaluate_metric(
-        "m", 0.85, threshold=0.0, baseline_score=0.95,
-        tolerance=0.02, fail_on_regression=True,
+        "m",
+        0.85,
+        threshold=0.0,
+        baseline_score=0.95,
+        tolerance=0.02,
+        fail_on_regression=True,
     )
     assert ev.status == "fail"  # dropped 0.10 > tolerance 0.02
 
 
 def test_fail_on_regression_no_trigger_within_tolerance() -> None:
     ev = evaluate_metric(
-        "m", 0.89, threshold=0.0, baseline_score=0.9,
-        tolerance=0.02, fail_on_regression=True,
+        "m",
+        0.89,
+        threshold=0.0,
+        baseline_score=0.9,
+        tolerance=0.02,
+        fail_on_regression=True,
     )
     assert ev.status == "pass"
 

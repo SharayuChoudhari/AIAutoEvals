@@ -18,6 +18,7 @@ def _fake_complete(rationale: str = "the model omitted a required step"):
         return response_model.model_validate(
             {"score": 0.0, "rationale": rationale, "sub_scores": {}}
         )
+
     return complete_fn
 
 
@@ -41,7 +42,9 @@ def test_explain_fallback_when_no_transport(monkeypatch: pytest.MonkeyPatch) -> 
     # Force the default transport to raise so the fallback narrative is used.
     async def boom(*, model, messages, response_model, temperature=0.0):
         raise RuntimeError("no transport")
+
     import ai_eval.judge.gateway as gw
+
     monkeypatch.setattr(gw, "_default_complete", boom)
     out = _run(
         explain(
@@ -62,6 +65,7 @@ def test_explain_fallback_when_no_transport(monkeypatch: pytest.MonkeyPatch) -> 
 def test_explain_fallback_on_judge_error() -> None:
     async def boom(*, model, messages, response_model, temperature=0.0):
         raise RuntimeError("judge down")
+
     out = _run(
         explain(
             metric_name="hallucination_rate",
@@ -83,7 +87,9 @@ def test_explain_no_regression_returns_fallback_without_delta(
 ) -> None:
     async def boom(*, model, messages, response_model, temperature=0.0):
         raise RuntimeError("no transport")
+
     import ai_eval.judge.gateway as gw
+
     monkeypatch.setattr(gw, "_default_complete", boom)
     out = _run(
         explain(

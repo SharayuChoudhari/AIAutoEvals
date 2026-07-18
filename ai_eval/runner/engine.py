@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ai_eval.config.schema import RubricsConfig, TaskSpec
+from ai_eval.config.schema import MetricSpec, RubricsConfig, TaskSpec
 from ai_eval.judge.cache import JudgeCache
 from ai_eval.judge.gateway import score as judge_score
 from ai_eval.judge.schemas import JudgeRequest
@@ -45,70 +45,6 @@ def config_hash(rubrics: RubricsConfig) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
-class _Stub:
-    """Permissive stand-in for a required non-primitive constructor arg.
-
-    Any attribute access or call returns a new _Stub so a task class's
-    __init__ / method body that touches ``config.x`` or ``session.add(...)``
-    doesn't raise. Used only for required non-primitive params (Bug 3).
-    """
-
-    __slots__ = ()
-
-    def __getattr__(self, name: str) -> _Stub:
-        return _Stub()
-
-    def __call__(self, *a, **kw) -> _Stub:
-        return _Stub()
-
-
-def _placeholder_for(param: inspect.Parameter) -> Any:
-    """Fabricate a plausible value for one required (no-default) param.
-
-    Primitives map to their zero value; everything else (unknown annotations,
-    class-typed params, unannotated) gets a permissive ``_Stub`` so method
-    bodies that touch ``config.x`` / ``session.add(...)`` don't raise.
-    """
-    ann = param.annotation
-    if ann is int:
-        return 0
-    if ann is float:
-        return 0.0
-    if ann is bool:
-        return False
-    if ann is str:
-        return ""
-    return _Stub()
-
-
-def _fake_call_args(sig: inspect.Signature) -> tuple[tuple, dict]:
-    """Build plausible positional + keyword args for a callable from its
-    inspect.Signature: primitives default to ``""``/``0``/``0.0``/``False``,
-    required non-primitive params get a ``_Stub`` (so ``__init__`` / method
-    bodies that touch ``config.x`` or ``session.add(...)`` don't raise), and
-    params with defaults are left to apply. ``self`` is skipped (it's supplied
-    implicitly by ``cls(...)``). Used to construct task-class instances for
-    dotted ``Class.method`` entries (pure-LLM path; IO-coupled tasks get the
-    harness monkey-patches installed first).
-    """
-    args: list = []
-    kwargs: dict = {}
-    for param in sig.parameters.values():
-        if param.kind in (
-            inspect.Parameter.VAR_POSITIONAL,
-            inspect.Parameter.VAR_KEYWORD,
-        ):
-            continue
-        # `self` is supplied implicitly by `cls(...)` — never fabricate it.
-        if param.name == "self":
-            continue
-        if param.default is not inspect.Parameter.empty:
-            # Has a real default — let it apply.
-            continue
-        args.append(_placeholder_for(param))
-    return tuple(args), kwargs
-
-
 def _build_call_args(fn, input_: Any) -> tuple[tuple, dict]:
     """Build ``(args, kwargs)`` to call ``fn`` with ``input_``.
 
@@ -119,15 +55,14 @@ def _build_call_args(fn, input_: Any) -> tuple[tuple, dict]:
     * ``input_`` is a ``list``/``tuple`` → unpacked as positional args.
     * ``input_`` is a scalar (the D6 auto-seed case) → inspect ``fn``'s
       signature: map the scalar onto the first str-typed required param (or
-      the first required param if none is str-typed), and fabricate
-      placeholders for the remaining required params. Params with defaults are
-      left to apply. If the signature can't be introspected (builtins/C
-      callables) the scalar is passed as a single positional arg (legacy
-      fast path).
-
-    This is what makes ``evaluate_single(self, question, retrieved_contexts,
-    answer)`` and ``_create_workflow(self)`` callable from a ``""`` auto-seed
-    without ``TypeError: missing N required positional arguments``.
+      the first required param if none is str-typed). Required non-scalar
+      params cannot be fabricated anymore (the ``_Stub`` path is removed —
+      AGENTS.md §1), so a signature with required non-str params that the
+      scalar doesn't bind to is a misconfiguration: the entry is IO-coupled
+      or object-typed and should be demoted via ``node_metrics`` + bootstrap,
+      not auto-seeded. Params with defaults are left to apply. If the
+      signature can't be introspected (builtins/C callables) the scalar is
+      passed as a single positional arg (legacy fast path).
     """
     if isinstance(input_, dict):
         return (), dict(input_)
@@ -159,10 +94,10 @@ def _build_call_args(fn, input_: Any) -> tuple[tuple, dict]:
     # Required params (no default) are the ones we must fill. Decide which of
     # them the scalar binds to: the first str-typed required param if any
     # (mirrors the auto-seed "single string input" intent), else the first
-    # required param. The remaining required params get fabricated placeholders;
-    # params with defaults are left to apply (not appended positionally, so
-    # Python fills them — but we must still append placeholders for required
-    # params that come *after* a defaulted one to keep positional order valid).
+    # required param. Only that one is filled; the entry is expected to be a
+    # legitimate pure-LLM top-level entry of arity 1 (the only runnable kind
+    # now — AGENTS.md §1). Multi-required-param entries with non-str params
+    # are IO-coupled/object-typed and should be demoted, not auto-seeded.
     required = [p for p in slots if p.default is inspect.Parameter.empty]
     scalar_idx = -1
     if required:
@@ -182,7 +117,16 @@ def _build_call_args(fn, input_: Any) -> tuple[tuple, dict]:
         if filled_required == scalar_idx:
             args.append(input_)
         else:
-            args.append(_placeholder_for(p))
+            # No _Stub fallback: a required param the scalar doesn't bind to
+            # means the entry is not a pure-LLM top-level entry. Surface a
+            # clear TypeError so the runner records a bootstrap-directed error
+            # (AGENTS.md §1) instead of silently fabricating a placeholder.
+            raise TypeError(
+                f"cannot auto-bind required param {p.name!r} (annotation "
+                f"{p.annotation!r}) from scalar input; this entry is "
+                f"IO-coupled or object-typed — demote it via node_metrics "
+                f"and run `ai-evals bootstrap` to capture a real trace"
+            )
         filled_required += 1
     return tuple(args), {}
 
@@ -248,10 +192,13 @@ def _import_entry(task_spec: TaskSpec, cwd: Path):
     """Import ``task_spec.file_path`` and resolve its ``entry`` symbol.
 
     For dotted ``Class.method`` entries (D2/D7): constructs an instance of the
-    class with auto-faked constructor args (primitives / None-defaulted) so the
-    method can be called with a ``self``. For IO-coupled tasks the harness
-    monkey-patches are installed first (``eval/_harness_<task>.py``) so the
-    instance's DAO/session reads return canned fixtures.
+    class. Constructor args now come ONLY from the harness (if present — the
+    harness monkey-patches ``self.<dao>.<method>()`` reads to return canned
+    fixtures) or a no-arg ``cls()`` fallback. The ``_Stub``/``_fake_call_args``
+    path is removed (AGENTS.md §1): if construction fails with ``TypeError``
+    (required args, no harness), the caller records an ``error``-status
+    ExampleRecord with a bootstrap-directed message — the entry point is
+    IO-coupled and needs a harness or a real backend.
 
     Inserts ``cwd`` and the file's parent onto ``sys.path`` first. Returns the
     callable (a bound method for dotted entries), or raises.
@@ -283,21 +230,18 @@ def _import_entry(task_spec: TaskSpec, cwd: Path):
         sys.modules[module_name] = mod
         spec.loader.exec_module(mod)  # type: ignore[union-attr]
     # Dotted ``Class.method``: resolve the class, construct an instance with
-    # faked args, return the bound method. Bare ``fn``: return the function.
+    # no args (the harness, if installed, has patched the DAO reads so a
+    # bare ``cls()`` works for IO-coupled entries whose ``__init__`` only
+    # needs a session/dao). If ``__init__`` requires real args and no harness
+    # supplies them, this raises ``TypeError`` — surfaced as a
+    # bootstrap-directed error by the runner (AGENTS.md §1). Bare ``fn``:
+    # return the function.
     if "." in entry:
         cls_name, _, method_name = entry.rpartition(".")
         cls = getattr(mod, cls_name, None)
         if cls is None:
             raise AttributeError(f"class {cls_name!r} not found in {file_path}")
-
-        try:
-            sig = inspect.signature(cls.__init__)
-            # Drop 'self' from the fake-args construction.
-            args, kwargs = _fake_call_args(sig)
-            instance = cls(*args, **kwargs)
-        except TypeError:
-            # Fallback: try a no-arg construction.
-            instance = cls()
+        instance = cls()
         fn = getattr(instance, method_name, None)
         if fn is None:
             raise AttributeError(f"method {method_name!r} not found on {cls_name!r} in {file_path}")
@@ -399,6 +343,11 @@ async def execute(
             metric_impls[mspec.name] = assert_metric_implemented(
                 mspec.name, project_root=project_root
             )
+        # Node metrics (AGENTS.md §1) are validated on the same surface so a
+        # typo'd metric name in ``node_metrics`` fails fast at run start, not
+        # silently per-example. The cache on ``tspec`` is primed here too.
+        if tspec.node_metrics:
+            _node_metric_impls(tspec, project_root)
 
         latencies: list[float] = []
 
@@ -466,6 +415,63 @@ async def execute(
     )
 
 
+def _select_nodes(calls: list, selector: str) -> list[tuple[str, dict]]:
+    """Match trace nodes against a selector clause.
+
+    Returns ``[(node_id, call_dict), ...]`` in call order. ``node_id`` is a
+    synthetic ``<kind>_<i>`` (e.g. ``retrieve_0``) so the per-node rollup is
+    keyed consistently across examples. A selector may match zero, one, or
+    many nodes — each match is scored independently.
+
+    Selector grammar (single clause, comma-free):
+
+    * ``kind=<x>`` — ``call["kind"] == x`` (e.g. ``kind=retrieve``).
+    * ``name=<exact>`` — exact match on ``call["name"]``.
+    * ``name~=<substr>`` — substring match on ``call["name"]``.
+    * ``call_index=<n>`` — the n-th call (0-based), regardless of kind/name.
+
+    Unknown clauses or malformed selectors match nothing (the node pass is a
+    no-op, surfaced as ``skip`` at aggregate time). This is the honest
+    behavior: a selector authored against a stale trace shape doesn't crash
+    the run, it just scores no nodes.
+    """
+    matches: list[tuple[str, dict]] = []
+    if not selector or "=" not in selector:
+        return matches
+    key, _, value = selector.partition("=")
+    key = key.strip()
+    value = value.strip()
+    kind_counters: dict[str, int] = {}
+    for i, call in enumerate(calls):
+        if not isinstance(call, dict):
+            continue
+        if key == "call_index":
+            try:
+                if int(value) != i:
+                    continue
+            except ValueError:
+                continue
+        elif key == "kind":
+            if call.get("kind") != value:
+                continue
+        elif key == "name":
+            if call.get("name") != value:
+                continue
+        elif key == "name~":
+            name = call.get("name")
+            if not isinstance(name, str) or value not in name:
+                continue
+        else:
+            continue
+        kind_val = call.get("kind")
+        kind = kind_val if isinstance(kind_val, str) else "node"
+        idx = kind_counters.get(kind, 0)
+        kind_counters[kind] = idx + 1
+        node_id = f"{kind}_{idx}"
+        matches.append((node_id, call))
+    return matches
+
+
 async def _run_example(
     example: dict,
     *,
@@ -498,6 +504,32 @@ async def _run_example(
         # memoized-ish per module name, and the call is the user's own code.
         fn = await asyncio.to_thread(_import_entry, tspec, project_root)
         output = await asyncio.to_thread(_call_entry, fn, input_)
+    except TypeError as exc:
+        # Construction or call failed on a required arg (no _Stub fallback —
+        # AGENTS.md §1). The entry is IO-coupled or object-typed: it needs a
+        # harness (``ai-evals init`` writes one for detected IO reads) or a
+        # real backend. Direct the user to bootstrap rather than leaving a
+        # bare ``TypeError: missing N required positional arguments``.
+        msg = str(exc)
+        is_arg_error = (
+            "required positional argument" in msg
+            or ("missing" in msg.lower() and "argument" in msg.lower())
+            or "cannot auto-bind required param" in msg
+        )
+        hint = (
+            " — this entry is IO-coupled or object-typed; run "
+            "`ai-evals bootstrap` to capture a real trace, or add a "
+            "harness in eval/_harness_<task>.py"
+            if is_arg_error
+            else ""
+        )
+        return ExampleRecord(
+            id=ex_id,
+            status="error",
+            latency_ms=(time.perf_counter() - t0) * 1000.0,
+            error=f"{type(exc).__name__}: {msg}{hint}",
+            seed=seed,
+        )
     except Exception as exc:
         return ExampleRecord(
             id=ex_id,
@@ -516,33 +548,63 @@ async def _run_example(
         impl = metric_impls[mspec.name]
         if getattr(impl, "non_judge", False):
             continue  # latency computed separately
-        request = JudgeRequest(
-            task_name=tname,
-            task_type=tspec.type,
-            metric=mspec.name,
+        score, err = await _score_one_metric(
+            tspec=tspec,
+            tname=tname,
+            mspec=mspec,
+            impl=impl,
             example=example,
             output=output,
+            default_model=default_model,
+            fallback=fallback,
+            complex_models=complex_models,
+            complete_fn=complete_fn,
+            cache=cache,
         )
-        try:
-            messages = impl.prompt_builder(tspec, example, output)  # type: ignore[arg-type]
-            response, errors = await judge_score(
-                request,
-                model=default_model,
-                prompt_messages=messages,
-                scored_dimension=impl.scored_dimension,
-                complete_fn=complete_fn,
-                fallback_models=fallback,
-                cache=cache,
-                complex_models=complex_models,
-            )
-            if response is None:
-                metric_errors[mspec.name] = [e.message for e in errors]
-                overall_status = "error"
-            else:
-                metric_scores[mspec.name] = response.score
-        except Exception as exc:
-            metric_errors[mspec.name] = [f"{type(exc).__name__}: {exc}"]
+        if err is not None:
+            metric_errors[mspec.name] = err
             overall_status = "error"
+        elif score is not None:
+            metric_scores[mspec.name] = score
+
+    # Node-scoring pass (AGENTS.md §1): walk the entry's captured trace and
+    # score each node matching a declared ``node_metrics`` binding. The entry
+    # runs once; its internal calls are scored from the trace, not
+    # re-executed. No-op when the task has no ``node_metrics`` or the example
+    # has no ``trace.calls`` (e.g. pre-bootstrap auto-seeded fixtures).
+    node_scores: dict[str, dict[str, float]] = {}
+    if tspec.node_metrics:
+        trace = example.get("trace") or {}
+        calls = trace.get("calls", []) if isinstance(trace, dict) else []
+        node_metric_impls = _node_metric_impls(tspec, project_root)
+        for nm in tspec.node_metrics:
+            if nm.metric.name not in node_metric_impls:
+                continue
+            impl = node_metric_impls[nm.metric.name]
+            if getattr(impl, "non_judge", False):
+                continue
+            for node_id, call in _select_nodes(calls, nm.node_selector):
+                node_example = {
+                    **example,
+                    "input": call.get("args"),
+                    "expected": None,
+                    "trace": {"calls": [call]},
+                }
+                score, _err = await _score_one_metric(
+                    tspec=tspec,
+                    tname=tname,
+                    mspec=nm.metric,
+                    impl=impl,
+                    example=node_example,
+                    output=call.get("result"),
+                    default_model=default_model,
+                    fallback=fallback,
+                    complex_models=complex_models,
+                    complete_fn=complete_fn,
+                    cache=cache,
+                )
+                if score is not None:
+                    node_scores.setdefault(node_id, {})[nm.metric.name] = score
 
     # Determine example pass/fail from its metrics' threshold evaluations.
     if overall_status != "error":
@@ -566,7 +628,81 @@ async def _run_example(
         metric_scores=metric_scores,
         metric_errors=metric_errors,
         seed=seed,
+        node_scores=node_scores,
     )
+
+
+async def _score_one_metric(
+    *,
+    tspec: TaskSpec,
+    tname: str,
+    mspec: MetricSpec,
+    impl: Any,
+    example: dict,
+    output: Any,
+    default_model: str,
+    fallback: tuple[str, ...],
+    complex_models: tuple[str, ...] | None,
+    complete_fn,
+    cache: JudgeCache,
+) -> tuple[float | None, list[str] | None]:
+    """Score one metric for one (example, output) pair.
+
+    Shared between the entry-level judge pass and the per-node judge pass so
+    both use identical prompt-building and gateway-call semantics. Returns
+    ``(score, errors)``: ``errors`` is ``None`` on success, a list of messages
+    on failure (gateway returned no response or raised). The caller maps
+    non-``None`` errors into ``metric_errors`` / the example's ``error``
+    status at the entry level; node-level errors are dropped (a failing node
+    metric doesn't fail the example — node scores are best-effort signal).
+    """
+    request = JudgeRequest(
+        task_name=tname,
+        task_type=tspec.type,
+        metric=mspec.name,
+        example=example,
+        output=output,
+    )
+    try:
+        messages = impl.prompt_builder(tspec, example, output)  # type: ignore[arg-type]
+        response, errors = await judge_score(
+            request,
+            model=default_model,
+            prompt_messages=messages,
+            scored_dimension=impl.scored_dimension,
+            complete_fn=complete_fn,
+            fallback_models=fallback,
+            cache=cache,
+            complex_models=complex_models,
+        )
+        if response is None:
+            return None, [e.message for e in errors]
+        return response.score, None
+    except Exception as exc:
+        return None, [f"{type(exc).__name__}: {exc}"]
+
+
+def _node_metric_impls(tspec: TaskSpec, project_root: Path) -> dict[str, Any]:
+    """Resolve judge implementations for the metrics named in ``node_metrics``.
+
+    Cached on ``tspec`` via a private attribute so the run-time strict gate
+    (``assert_metric_implemented``) is only paid once per task. Raises
+    :class:`~ai_eval.runner.thresholds.MetricNotImplementedError` if a node
+    metric has no implementation — surfaced at run start, not mid-example.
+    """
+    cached = getattr(tspec, "_node_metric_impls_cache", None)
+    if cached is not None:
+        return cached  # type: ignore[no-any-return]
+    impls: dict[str, Any] = {}
+    for nm in tspec.node_metrics:
+        if nm.metric.name in impls:
+            continue
+        impls[nm.metric.name] = assert_metric_implemented(nm.metric.name, project_root=project_root)
+    try:
+        object.__setattr__(tspec, "_node_metric_impls_cache", impls)
+    except (AttributeError, TypeError):
+        pass
+    return impls
 
 
 def _aggregate_metrics(
@@ -584,6 +720,7 @@ def _aggregate_metrics(
         bm = base_task.get("metrics")
         if isinstance(bm, dict):
             base_metrics = bm
+    # Entry-level metrics: mean over examples (existing behavior).
     for mspec in tspec.metrics:
         scores = [e.metric_scores[mspec.name] for e in examples if mspec.name in e.metric_scores]
         if mspec.name in ("latency_p50", "latency_p95"):
@@ -617,6 +754,50 @@ def _aggregate_metrics(
             threshold=ev.threshold,
             status=ev.status,
             weight=mspec.weight,
+        )
+    # Node-level metrics: weighted mean of that metric's node scores across
+    # all examples (AGENTS.md §1). Sourced from ``node_scores`` per example —
+    # a node metric only present in ``node_metrics`` (not ``metrics``) still
+    # gets an aggregate row so the run report surfaces it.
+    for nm in tspec.node_metrics:
+        if nm.metric.name in out:
+            continue  # already aggregated from entry-level metric_scores
+        if nm.metric.name in ("latency_p50", "latency_p95"):
+            out[nm.metric.name] = MetricResult(
+                name=nm.metric.name, threshold=nm.metric.threshold, status="skip"
+            )
+            continue
+        node_scores_flat: list[float] = []
+        for e in examples:
+            for _node_id, scores_for_node in e.node_scores.items():
+                v = scores_for_node.get(nm.metric.name)
+                if v is not None:
+                    node_scores_flat.append(v)
+        if not node_scores_flat:
+            out[nm.metric.name] = MetricResult(
+                name=nm.metric.name, threshold=nm.metric.threshold, status="skip"
+            )
+            continue
+        mean_score = sum(node_scores_flat) / len(node_scores_flat)
+        base_score = None
+        bm = base_metrics.get(nm.metric.name)
+        if isinstance(bm, dict) and bm.get("score") is not None:
+            base_score = float(bm["score"])
+        ev = evaluate_metric(
+            nm.metric.name,
+            mean_score,
+            threshold=nm.metric.threshold,
+            baseline_score=base_score,
+            tolerance=tolerance,
+            fail_on_regression=fail_on_regression,
+        )
+        out[nm.metric.name] = MetricResult(
+            name=nm.metric.name,
+            score=ev.score,
+            delta=ev.delta,
+            threshold=ev.threshold,
+            status=ev.status,
+            weight=nm.metric.weight,
         )
     return out
 

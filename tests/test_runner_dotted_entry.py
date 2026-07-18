@@ -1,21 +1,27 @@
 """Tests for run-engine dotted entry resolution, async handling, and harness
-loading (D7/Step 7)."""
+loading (D7/Step 7).
+
+The ``_Stub``/``_fake_call_args`` symbols were removed (AGENTS.md §1): dotted
+entries construct with no args (or a harness), and an IO-coupled entry whose
+``__init__`` requires real args fails with a bootstrap-directed error instead
+of a silent ``_Stub``-driven crash.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import inspect
 import sys
 import time
 from pathlib import Path
 
 from ai_eval.config.schema import JudgeConfig, RubricsConfig, TaskSpec
-from ai_eval.runner.engine import _fake_call_args, execute
+from ai_eval.runner.engine import execute
 
 
 def _rubrics(tasks: dict[str, TaskSpec]) -> RubricsConfig:
     return RubricsConfig(
-        schema_version=1, project_type="chat",
+        schema_version=1,
+        project_type="chat",
         judge=JudgeConfig(default="fake/local"),
         tasks=tasks,
     )
@@ -30,25 +36,35 @@ def _run(coro):
 
 
 def test_dotted_sync_method_entry_resolves_and_runs(tmp_path: Path) -> None:
-    """A dotted ``Class.method`` entry constructs an instance with faked args
+    """A dotted ``Class.method`` entry constructs an instance with no args
     and calls the bound method."""
     (tmp_path / "svc.py").write_text(
         "class Svc:\n"
-        "    def __init__(self, name=''):\n"
-        "        self.name = name\n"
+        "    def __init__(self):\n"
+        "        self.name = 'svc'\n"
         "    def process(self, q):\n"
         "        return f'{self.name}:{q}'\n",
         encoding="utf-8",
     )
-    rubrics = _rubrics({
-        "svc_process": TaskSpec(file_path="svc.py", entry="Svc.process", type="chat",
-                                 metrics=[]),
-    })
+    rubrics = _rubrics(
+        {
+            "svc_process": TaskSpec(
+                file_path="svc.py", entry="Svc.process", type="chat", metrics=[]
+            ),
+        }
+    )
     golden = {"svc_process": [{"id": "e1", "input": "hi"}]}
-    record = _run(execute(
-        rubrics, golden, project_root=tmp_path, parallel=1,
-        complete_fn=None, run_id="r1", started_at=time.time(),
-    ))
+    record = _run(
+        execute(
+            rubrics,
+            golden,
+            project_root=tmp_path,
+            parallel=1,
+            complete_fn=None,
+            run_id="r1",
+            started_at=time.time(),
+        )
+    )
     task = record.tasks["svc_process"]
     # No error; the example ran.
     assert all(e.status != "error" for e in task.examples)
@@ -66,15 +82,25 @@ def test_dotted_async_method_entry_awaits(tmp_path: Path) -> None:
         "        return q + '!'\n",
         encoding="utf-8",
     )
-    rubrics = _rubrics({
-        "async_svc_process": TaskSpec(file_path="async_svc.py", entry="Svc.process",
-                                      type="chat", metrics=[]),
-    })
+    rubrics = _rubrics(
+        {
+            "async_svc_process": TaskSpec(
+                file_path="async_svc.py", entry="Svc.process", type="chat", metrics=[]
+            ),
+        }
+    )
     golden = {"async_svc_process": [{"id": "e1", "input": "hi"}]}
-    record = _run(execute(
-        rubrics, golden, project_root=tmp_path, parallel=1,
-        complete_fn=None, run_id="r2", started_at=time.time(),
-    ))
+    record = _run(
+        execute(
+            rubrics,
+            golden,
+            project_root=tmp_path,
+            parallel=1,
+            complete_fn=None,
+            run_id="r2",
+            started_at=time.time(),
+        )
+    )
     task = record.tasks["async_svc_process"]
     assert all(e.status != "error" for e in task.examples)
 
@@ -82,18 +108,26 @@ def test_dotted_async_method_entry_awaits(tmp_path: Path) -> None:
 def test_bare_function_entry_runs_unchanged(tmp_path: Path) -> None:
     """A bare ``fn`` entry (no dot) runs via the original fast path."""
     (tmp_path / "mod.py").write_text(
-        "def main(q):\n"
-        "    return q * 2\n",
+        "def main(q):\n    return q * 2\n",
         encoding="utf-8",
     )
-    rubrics = _rubrics({
-        "mod_task": TaskSpec(file_path="mod.py", entry="main", type="chat", metrics=[]),
-    })
+    rubrics = _rubrics(
+        {
+            "mod_task": TaskSpec(file_path="mod.py", entry="main", type="chat", metrics=[]),
+        }
+    )
     golden = {"mod_task": [{"id": "e1", "input": 21}]}
-    record = _run(execute(
-        rubrics, golden, project_root=tmp_path, parallel=1,
-        complete_fn=None, run_id="r3", started_at=time.time(),
-    ))
+    record = _run(
+        execute(
+            rubrics,
+            golden,
+            project_root=tmp_path,
+            parallel=1,
+            complete_fn=None,
+            run_id="r3",
+            started_at=time.time(),
+        )
+    )
     task = record.tasks["mod_task"]
     assert all(e.status != "error" for e in task.examples)
 
@@ -102,20 +136,28 @@ def test_dotted_entry_missing_class_errors_cleanly(tmp_path: Path) -> None:
     """A dotted entry whose class doesn't exist produces an error example, not
     a crash."""
     (tmp_path / "svc.py").write_text(
-        "class Other:\n"
-        "    def process(self, q):\n"
-        "        return q\n",
+        "class Other:\n    def process(self, q):\n        return q\n",
         encoding="utf-8",
     )
-    rubrics = _rubrics({
-        "svc_process": TaskSpec(file_path="svc.py", entry="Svc.process", type="chat",
-                               metrics=[]),
-    })
+    rubrics = _rubrics(
+        {
+            "svc_process": TaskSpec(
+                file_path="svc.py", entry="Svc.process", type="chat", metrics=[]
+            ),
+        }
+    )
     golden = {"svc_process": [{"id": "e1", "input": "hi"}]}
-    record = _run(execute(
-        rubrics, golden, project_root=tmp_path, parallel=1,
-        complete_fn=None, run_id="r4", started_at=time.time(),
-    ))
+    record = _run(
+        execute(
+            rubrics,
+            golden,
+            project_root=tmp_path,
+            parallel=1,
+            complete_fn=None,
+            run_id="r4",
+            started_at=time.time(),
+        )
+    )
     task = record.tasks["svc_process"]
     assert any(e.status == "error" for e in task.examples)
 
@@ -141,7 +183,9 @@ def test_harness_loaded_for_io_coupled_dotted_entry(tmp_path: Path) -> None:
     from ai_eval.scaffold.harness_writer import HarnessSpec, IOAttr, render_harness
 
     spec = HarnessSpec(
-        task_name="svc_process", entry="Svc.process", file_path="svc.py",
+        task_name="svc_process",
+        entry="Svc.process",
+        file_path="svc.py",
         attrs=[IOAttr(attr="dao", method="search", ctor_name="DAO")],
         body_hash="stub",
     )
@@ -151,43 +195,41 @@ def test_harness_loaded_for_io_coupled_dotted_entry(tmp_path: Path) -> None:
         "('dao', 'search'): {}", "('dao', 'search'): [{'id': 1, 'text': 'canned'}]"
     )
     (eval_dir / "_harness_svc_process.py").write_text(content, encoding="utf-8")
-    rubrics = _rubrics({
-        "svc_process": TaskSpec(file_path="svc.py", entry="Svc.process",
-                                type="chat", metrics=[]),
-    })
+    rubrics = _rubrics(
+        {
+            "svc_process": TaskSpec(
+                file_path="svc.py", entry="Svc.process", type="chat", metrics=[]
+            ),
+        }
+    )
     golden = {"svc_process": [{"id": "e1", "input": "q"}]}
-    record = _run(execute(
-        rubrics, golden, project_root=tmp_path, parallel=1,
-        complete_fn=None, run_id="r5", started_at=time.time(),
-    ))
+    record = _run(
+        execute(
+            rubrics,
+            golden,
+            project_root=tmp_path,
+            parallel=1,
+            complete_fn=None,
+            run_id="r5",
+            started_at=time.time(),
+        )
+    )
     task = record.tasks["svc_process"]
     # The harness patched process → no real DB hit → no error.
     assert all(e.status != "error" for e in task.examples), task.errors
 
 
-def test_dotted_entry_required_non_self_arg_constructs(tmp_path: Path) -> None:
-    """A ``__init__(self, config)`` with a required non-self arg constructs
-    without ``TypeError: missing 1 required positional argument``.
+def test_dotted_entry_required_args_no_harness_errors_with_bootstrap_hint(
+    tmp_path: Path,
+) -> None:
+    """A dotted entry whose ``__init__`` requires real args and has no harness
+    fails with a clear bootstrap-directed error — not a ``RecursionError`` or
+    silent ``_Stub``-driven crash (AGENTS.md §1).
 
-    Pins Bug 2 (self must be skipped) + Bug 3 (required non-primitive arg gets
-    a permissive _Stub, not None). Mirrors ``SingleQueryEvaluator``.
+    Pins the removal of ``_fake_call_args``/``_Stub``. Mirrors
+    ``SingleQueryEvaluator.__init__(self, config)`` and
+    ``ChatMessageService.__init__(self, session)``.
     """
-
-    class _Svc:
-        def __init__(self, config):
-            self.config = config
-
-        def process(self, q):
-            return f"got:{q}"
-
-    sig = inspect.signature(_Svc.__init__)
-    args, kwargs = _fake_call_args(sig)
-    # self skipped → exactly one fabricated arg (a _Stub), not two/None.
-    assert len(args) == 1
-    instance = _Svc(*args, **kwargs)
-    assert instance.process("hi") == "got:hi"
-
-    # End-to-end through the engine.
     (tmp_path / "svc.py").write_text(
         "class Svc:\n"
         "    def __init__(self, config):\n"
@@ -196,51 +238,35 @@ def test_dotted_entry_required_non_self_arg_constructs(tmp_path: Path) -> None:
         "        return f'got:{q}'\n",
         encoding="utf-8",
     )
-    rubrics = _rubrics({
-        "svc_process": TaskSpec(file_path="svc.py", entry="Svc.process",
-                                type="chat", metrics=[]),
-    })
-    golden = {"svc_process": [{"id": "e1", "input": "hi"}]}
-    record = _run(execute(
-        rubrics, golden, project_root=tmp_path, parallel=1,
-        complete_fn=None, run_id="b23", started_at=time.time(),
-    ))
-    task = record.tasks["svc_process"]
-    assert all(e.status != "error" for e in task.examples), task.errors
-    assert not any("missing" in (e.error or "") for e in task.examples)
-
-
-def test_dotted_entry_stub_arg_absorbs_method_body_access(tmp_path: Path) -> None:
-    """A required ``session`` arg becomes a ``_Stub`` that absorbs
-    ``self.session.add(...)`` in the method body — no ``AttributeError``.
-
-    Pins Bug 3. Mirrors ``ChatMessageService``.
-    """
-    (tmp_path / "svc.py").write_text(
-        "class Svc:\n"
-        "    def __init__(self, session):\n"
-        "        self.session = session\n"
-        "    def create_workflow(self, q):\n"
-        "        self.session.add(len(q))\n"
-        "        return f'workflow:{q}'\n",
-        encoding="utf-8",
+    rubrics = _rubrics(
+        {
+            "svc_process": TaskSpec(
+                file_path="svc.py", entry="Svc.process", type="chat", metrics=[]
+            ),
+        }
     )
-    rubrics = _rubrics({
-        "svc_create": TaskSpec(file_path="svc.py", entry="Svc.create_workflow",
-                               type="chat", metrics=[]),
-    })
-    golden = {"svc_create": [{"id": "e1", "input": "hello"}]}
-    record = _run(execute(
-        rubrics, golden, project_root=tmp_path, parallel=1,
-        complete_fn=None, run_id="b3", started_at=time.time(),
-    ))
-    task = record.tasks["svc_create"]
-    assert all(e.status != "error" for e in task.examples), task.errors
+    golden = {"svc_process": [{"id": "e1", "input": "hi"}]}
+    record = _run(
+        execute(
+            rubrics,
+            golden,
+            project_root=tmp_path,
+            parallel=1,
+            complete_fn=None,
+            run_id="b23",
+            started_at=time.time(),
+        )
+    )
+    task = record.tasks["svc_process"]
+    # Construction failed (required arg, no harness, no _Stub) → error example
+    # with a bootstrap-directed hint.
+    assert any(e.status == "error" for e in task.examples), task.errors
+    err = task.examples[0].error or ""
+    assert "bootstrap" in err, err
+    assert "missing" in err.lower() or "argument" in err.lower(), err
 
 
-def test_dotted_entry_cross_package_import_loads(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_dotted_entry_cross_package_import_loads(tmp_path: Path, monkeypatch) -> None:
     """A task module with a top-level ``from layers.dao import ...`` loads
     under console-script semantics (cwd NOT auto-on-sys.path).
 
@@ -260,9 +286,8 @@ def test_dotted_entry_cross_package_import_loads(
     (tmp_path / "svc.py").write_text(
         "from layers.dao import DocumentVectorDAO\n"
         "class Svc:\n"
-        "    def __init__(self, session):\n"
+        "    def __init__(self):\n"
         "        self.dao = DocumentVectorDAO()\n"
-        "        self.session = session\n"
         "    def search(self, q):\n"
         "        return self.dao.search(q)\n",
         encoding="utf-8",
@@ -272,7 +297,9 @@ def test_dotted_entry_cross_package_import_loads(
     from ai_eval.scaffold.harness_writer import HarnessSpec, IOAttr, render_harness
 
     spec = HarnessSpec(
-        task_name="svc_search", entry="Svc.search", file_path="svc.py",
+        task_name="svc_search",
+        entry="Svc.search",
+        file_path="svc.py",
         attrs=[IOAttr(attr="dao", method="search", ctor_name="DocumentVectorDAO")],
         body_hash="stub",
     )
@@ -282,24 +309,30 @@ def test_dotted_entry_cross_package_import_loads(
     )
     (eval_dir / "_harness_svc_search.py").write_text(content, encoding="utf-8")
 
-    rubrics = _rubrics({
-        "svc_search": TaskSpec(file_path="svc.py", entry="Svc.search",
-                               type="chat", metrics=[]),
-    })
+    rubrics = _rubrics(
+        {
+            "svc_search": TaskSpec(file_path="svc.py", entry="Svc.search", type="chat", metrics=[]),
+        }
+    )
     golden = {"svc_search": [{"id": "e1", "input": "q"}]}
 
     # Mimic a console-script entrypoint: cwd is NOT on sys.path. Drop tmp_path
     # and "" so the harness's exec_module can't find `layers` without the fix.
     saved = list(sys.path)
     tmp_str = str(tmp_path)
-    monkeypatch.setattr(
-        sys, "path", [p for p in sys.path if p not in ("", tmp_str)]
-    )
+    monkeypatch.setattr(sys, "path", [p for p in sys.path if p not in ("", tmp_str)])
     try:
-        record = _run(execute(
-            rubrics, golden, project_root=tmp_path, parallel=1,
-            complete_fn=None, run_id="b1", started_at=time.time(),
-        ))
+        record = _run(
+            execute(
+                rubrics,
+                golden,
+                project_root=tmp_path,
+                parallel=1,
+                complete_fn=None,
+                run_id="b1",
+                started_at=time.time(),
+            )
+        )
     finally:
         sys.path[:] = saved
 

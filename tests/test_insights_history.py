@@ -21,7 +21,9 @@ from ai_eval.storage.runs import save_run
 
 def _record(rid: str) -> RunRecord:
     return RunRecord(
-        id=rid, started_at=1000.0, finished_at=1001.0,
+        id=rid,
+        started_at=1000.0,
+        finished_at=1001.0,
         git=GitMeta(sha="abc", branch="main", dirty=False),
         summary=RunSummary(passed=1, failed=0, errors=0, examples=1),
         tags=["t"],

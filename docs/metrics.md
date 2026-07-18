@@ -167,3 +167,52 @@ window) rather than being rejected at schema-load time. Set
 `AI_EVAL_STRICT_METRICS=1` to enforce hard rejection now. At run time,
 `ai-evals run` always fails fast (`MetricNotImplementedError`, exit 1) on any
 metric with no judge implementation.
+
+## Node metrics (`node_metrics`)
+
+`ai-evals run` runs only the end-to-end entry point per use case and scores
+its internal nodes from the captured trace (`example["trace"]["calls"]`), not
+re-executed. Bind a metric to a trace node via `node_metrics` on the entry
+task:
+
+```yaml
+tasks:
+  chat_message_service_process_query:
+    # ... entry, type, metrics, top_level: true ...
+    node_metrics:
+      - node_selector: kind=retrieve
+        metric:
+          name: context_precision
+          threshold: 0.85
+          weight: 1.0
+      - node_selector: name~=openai
+        metric:
+          name: hallucination_rate
+          threshold: 0.1
+```
+
+### Selector grammar
+
+A `node_selector` is a single clause (comma-free):
+
+| Selector | Matches |
+|---|---|
+| `kind=<x>` | `call["kind"] == x` (e.g. `kind=retrieve`, `kind=llm`). |
+| `name=<exact>` | Exact match on `call["name"]`. |
+| `name~=<substr>` | Substring match on `call["name"]`. |
+| `call_index=<n>` | The n-th call (0-based), regardless of kind/name. |
+
+A selector may match multiple nodes; each match is scored independently and
+gets a synthetic `node_id` (`<kind>_<i>`, e.g. `retrieve_0`, `retrieve_1`).
+Per-node scores roll into `ExampleRecord.node_scores`; the task-level
+aggregate is the weighted mean of node scores across examples.
+
+### When to author `node_metrics`
+
+Author `node_metrics` **after** a first `ai-evals bootstrap` reveals the real
+`call["kind"]` / `call["name"]` values the framework wrappers record. `init`
+writes `node_metrics: []` (empty) — guessing selector names pre-bootstrap is
+fragile because the names are framework-wrangler-defined (e.g.
+`pgvector.orm.op`). If a selector matches no nodes (stale trace shape), the
+node pass is a no-op and the aggregate metric is `skip` — the run doesn't
+crash.

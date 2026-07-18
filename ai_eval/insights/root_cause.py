@@ -59,8 +59,9 @@ async def explain(
         return _fallback(metric_name, current_score, baseline_score, str(exc))
 
     if resp is None:
-        return _fallback(metric_name, current_score, baseline_score,
-                         "; ".join(e.message for e in errors))
+        return _fallback(
+            metric_name, current_score, baseline_score, "; ".join(e.message for e in errors)
+        )
     return resp.rationale or _fallback(metric_name, current_score, baseline_score, None)
 
 
@@ -86,7 +87,7 @@ def _build_messages(
             "current_output: " + json.dumps(current_output, default=str, ensure_ascii=False),
             "baseline_output: " + json.dumps(baseline_output, default=str, ensure_ascii=False),
             "example: " + json.dumps(example, default=str, ensure_ascii=False),
-            "Return JSON: {\"score\": 0.0, \"rationale\": \"<one paragraph>\"}",
+            'Return JSON: {"score": 0.0, "rationale": "<one paragraph>"}',
         ]
     )
     return [

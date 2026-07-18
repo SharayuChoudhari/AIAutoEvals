@@ -78,9 +78,9 @@ def builtin_detectors() -> list[Detector]:
     """
     return [
         OpenAIResponsesDetector(),  # before chat — tools-bearing Responses → workflow
-        OpenAIToolsDetector(),      # before chat — tools take precedence
-        PGVectorDetector(),         # before chat — RAG takes precedence
-        LangGraphDetector(),        # before LangChain — different framework, safer first
+        OpenAIToolsDetector(),  # before chat — tools take precedence
+        PGVectorDetector(),  # before chat — RAG takes precedence
+        LangGraphDetector(),  # before LangChain — different framework, safer first
         OpenAIChatDetector(),
         LangChainDetector(),
         ChromaDBDetector(),
@@ -112,6 +112,7 @@ def load_entrypoint_detectors() -> list[Detector]:
 # .gitignore integration
 # ---------------------------------------------------------------------------
 
+
 def _load_gitignore_set(root: Path) -> frozenset[str] | None:
     """Return a frozenset of repo-root-relative POSIX paths that git considers
     ignored, using ``git check-ignore``.
@@ -124,7 +125,9 @@ def _load_gitignore_set(root: Path) -> frozenset[str] | None:
     try:
         result = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode != 0:
             return None
@@ -139,9 +142,7 @@ def _load_gitignore_set(root: Path) -> frozenset[str] | None:
         _prune_dirnames(dirnames, extra_excludes=())
         for fn in filenames:
             if fn.endswith(".py"):
-                candidates.append(
-                    (Path(dirpath) / fn).relative_to(git_root).as_posix()
-                )
+                candidates.append((Path(dirpath) / fn).relative_to(git_root).as_posix())
 
     if not candidates:
         return frozenset()
@@ -150,7 +151,9 @@ def _load_gitignore_set(root: Path) -> frozenset[str] | None:
         proc = subprocess.run(
             ["git", "-C", str(git_root), "check-ignore", "--stdin", "-z"],
             input="\0".join(candidates),
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return None
@@ -163,9 +166,7 @@ def _load_gitignore_set(root: Path) -> frozenset[str] | None:
         if not p:
             continue
         try:
-            root_rel.add(
-                (git_root / p).relative_to(root).as_posix()
-            )
+            root_rel.add((git_root / p).relative_to(root).as_posix())
         except ValueError:
             # Path is outside root (e.g. a parent repo file) — skip.
             pass
@@ -176,6 +177,7 @@ def _load_gitignore_set(root: Path) -> frozenset[str] | None:
 # Directory walking
 # ---------------------------------------------------------------------------
 
+
 def _prune_dirnames(dirnames: list[str], *, extra_excludes: Iterable[str]) -> None:
     """Mutate ``dirnames`` in-place to skip ignored directories.
 
@@ -184,7 +186,8 @@ def _prune_dirnames(dirnames: list[str], *, extra_excludes: Iterable[str]) -> No
     """
     extra = tuple(extra_excludes)
     to_remove = [
-        d for d in dirnames
+        d
+        for d in dirnames
         if d in _DEFAULT_IGNORES
         or any(fnmatch.fnmatch(d, pat) for pat in _DEFAULT_IGNORES if "*" in pat)
         or any(fnmatch.fnmatch(d, pat) for pat in extra)
@@ -244,6 +247,7 @@ def iter_python_files(
 # ---------------------------------------------------------------------------
 # Per-file parse + detect
 # ---------------------------------------------------------------------------
+
 
 def _parse(path: Path) -> ast.AST | None:
     try:

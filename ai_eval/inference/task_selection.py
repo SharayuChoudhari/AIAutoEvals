@@ -1,4 +1,5 @@
-"""Task selection: call-graph demotion (P2) + judge-exclusion (D1).
+"""Task selection: call-graph demotion (P2) + judge-exclusion (D1) +
+deepest-root selection (AGENTS.md §1).
 
 This is the gate between raw detector output and the rubric engine. It filters
 ``scan.tasks`` down to the public AI task surface by:
@@ -19,10 +20,16 @@ This is the gate between raw detector output and the rubric engine. It filters
      Bare ``Result`` is NOT sufficient (would false-positive on
      ``SearchResult``).
    - **J5** — the site is inside ai-evals' own generated ``eval/tests.py``.
+3. **Deepest-root selection** — among the survivors, demote any task that is
+   itself called by another surviving task. The survivors are the end-to-end
+   entries per use case (only one runnable entry point per use case is run;
+   internal nodes are scored from the captured trace, not re-executed).
+   Demoted survivors get ``top_level=False`` so the seeder and runner skip
+   them (AGENTS.md §1).
 
-Both layers are escape-hatched by hints: ``judge_code: [paths]`` force-excludes
-matching files; ``force_task: true`` on a hint task (matching by
-``(file_path, entry)``) makes a site immune to both demotion and exclusion.
+All three layers are escape-hatched by hints: ``judge_code: [paths]``
+force-excludes matching files; ``force_task: true`` on a hint task (matching
+by ``(file_path, entry)``) makes a site immune to demotion and exclusion.
 
 Policy is disjunctive-broad (low false-negative): silently dropping a real task
 is the worst failure for a zero-config tool, so J1 alone suffices and J2 AND J3
@@ -36,7 +43,7 @@ import fnmatch
 from pathlib import Path
 
 from ai_eval.inference.ast_scan import ScanResult
-from ai_eval.inference.callgraph import FileContext, build_call_graph, compute_roots
+from ai_eval.inference.callgraph import FileContext, SiteKey, build_call_graph, compute_roots
 from ai_eval.inference.detectors.base import DetectedTask
 from ai_eval.inference.signatures import ImportInfo
 
@@ -68,9 +75,7 @@ _EVAL_DIR_PREFIXES: tuple[str, ...] = (
 #: Score-shaped field names in a return type (J3). An enclosing callable that
 #: returns an object with one of these fields (or a class whose name contains
 #: ``Evaluation``/``Metric``) is judge code.
-_SCORE_FIELD_NAMES: frozenset[str] = frozenset(
-    {"score", "rating", "faithfulness", "precision"}
-)
+_SCORE_FIELD_NAMES: frozenset[str] = frozenset({"score", "rating", "faithfulness", "precision"})
 
 #: Class-name substrings that mark a return type as a judge/metric object (J3).
 _SCORE_CLASS_HINTS: tuple[str, ...] = ("Evaluation", "Metric")
@@ -161,6 +166,34 @@ def _matches_globs(file_path: str, globs: list[str]) -> bool:
     return any(fnmatch.fnmatch(file_path, g) for g in globs)
 
 
+def _peer_reached_keys(
+    kept: list[DetectedTask], edges: dict[SiteKey, set[SiteKey]]
+) -> set[SiteKey]:
+    """Layer 3: keys of survivors that are themselves called by another survivor.
+
+    Among the kept tasks, walk the precomputed call edges (already built from
+    the AST over the full scan) and collect any kept task reached by another
+    kept task — these are not the deepest reachable root of their use case, so
+    they'd be re-executed as redundant entry points. The survivors minus this
+    set are the end-to-end entries per use case (AGENTS.md §1).
+
+    Edge targets that aren't in ``kept`` are ignored (they're either excluded
+    judge code or non-detected helpers).
+
+    Independent use cases (a chat service + a separate ingestion service)
+    each keep their own deepest root — the rule is "demote if reached by a
+    *kept peer*", not "keep exactly one globally".
+    """
+    kept_keys = {SiteKey.of(t) for t in kept}
+    reached_by_peer: set[SiteKey] = set()
+    for src in kept:
+        src_key = SiteKey.of(src)
+        for dst in edges.get(src_key, ()):
+            if dst in kept_keys and dst != src_key:
+                reached_by_peer.add(dst)
+    return reached_by_peer
+
+
 def select_tasks(
     root: Path,
     scan: ScanResult,
@@ -190,9 +223,7 @@ def select_tasks(
     roots, reached = compute_roots(edges, ast_tasks)
 
     # force_task AST tasks survive even if reached.
-    forced_ast = [
-        t for t in reached if (t.file_path, t.entry) in force_task_keys
-    ]
+    forced_ast = [t for t in reached if (t.file_path, t.entry) in force_task_keys]
     survivor_ast = roots + forced_ast
     # Re-establish a stable order: by file_path then entry.
     survivor_ast.sort(key=lambda t: (t.file_path, t.entry or ""))
@@ -225,10 +256,39 @@ def select_tasks(
             continue
         kept.append(t)
 
+    # Layer 3: deepest-root selection. Demote any survivor that is itself
+    # called by another surviving peer (AGENTS.md §1: only the end-to-end
+    # entry point per use case is run; internal nodes are scored from the
+    # captured trace, not re-executed). force_task keys stay immune — they
+    # are explicit user overrides of the call graph. Hint tasks are never
+    # reached-by-peer (they're not AST graph nodes) so they're untouched.
+    forced_set = force_task_keys
+    peer_kept: list[DetectedTask] = []
+    for t in kept:
+        if (t.file_path, t.entry) in forced_set:
+            peer_kept.append(t)
+            continue
+        if t.framework == "hint":
+            peer_kept.append(t)
+            continue
+        peer_kept.append(t)
+    reached_by_peer = _peer_reached_keys(peer_kept, edges)
+    final_kept: list[DetectedTask] = []
+    demoted: list[DetectedTask] = []
+    for t in peer_kept:
+        if SiteKey.of(t) in reached_by_peer:
+            demoted.append(t)
+            continue
+        final_kept.append(t)
+    # Propagate top_level=False on demoted tasks so the seeder and runner
+    # skip them (synthesize already honors task.top_level).
+    for t in demoted:
+        t.top_level = False
+
     return ScanResult(
         files_scanned=scan.files_scanned,
         elapsed_seconds=scan.elapsed_seconds,
-        tasks=kept,
+        tasks=final_kept,
         frameworks_seen=scan.frameworks_seen,
     )
 

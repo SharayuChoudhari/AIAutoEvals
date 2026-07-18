@@ -107,6 +107,7 @@ def prune(state_dir: Path, *, keep: int) -> int:
         rd = state_dir / "runs" / rid
         if rd.is_dir():
             import shutil
+
             shutil.rmtree(rd, ignore_errors=True)
     return len(removed)
 

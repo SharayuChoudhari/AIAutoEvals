@@ -20,13 +20,18 @@ def _run(runner: CliRunner, cwd: Path, *args: str):
 # dry-run
 # ---------------------------------------------------------------------------
 
-def test_init_dry_run_json(
-    runner: CliRunner, tiny_repo: Path, clean_env: None
-) -> None:
+
+def test_init_dry_run_json(runner: CliRunner, tiny_repo: Path, clean_env: None) -> None:
     # --rubric-engine rules reproduces the pre-SLM snapshot without ollama.
     result = _run(
-        runner, tiny_repo, "--format", "json", "init", "--dry-run",
-        "--rubric-engine", "rules",
+        runner,
+        tiny_repo,
+        "--format",
+        "json",
+        "init",
+        "--dry-run",
+        "--rubric-engine",
+        "rules",
     )
     assert result.exit_code == 0, result.stdout + (result.stderr or "")
     payload = json.loads(result.stdout)
@@ -48,8 +53,14 @@ def test_init_dry_run_shows_requires_force_when_files_exist(
     (tiny_repo / "eval" / "rubrics.yaml").write_text("schema_version: 0\n", encoding="utf-8")
 
     result = _run(
-        runner, tiny_repo, "--format", "json", "init", "--dry-run",
-        "--rubric-engine", "rules",
+        runner,
+        tiny_repo,
+        "--format",
+        "json",
+        "init",
+        "--dry-run",
+        "--rubric-engine",
+        "rules",
     )
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
@@ -63,12 +74,9 @@ def test_init_dry_run_shows_requires_force_when_files_exist(
 # full scaffold write
 # ---------------------------------------------------------------------------
 
-def test_init_writes_full_scaffold(
-    runner: CliRunner, tiny_repo: Path, clean_env: None
-) -> None:
-    result = _run(
-        runner, tiny_repo, "--format", "json", "init", "--rubric-engine", "rules"
-    )
+
+def test_init_writes_full_scaffold(runner: CliRunner, tiny_repo: Path, clean_env: None) -> None:
+    result = _run(runner, tiny_repo, "--format", "json", "init", "--rubric-engine", "rules")
     assert result.exit_code == 0, result.stderr or result.stdout
 
     rubrics_path = tiny_repo / "eval" / "rubrics.yaml"
@@ -98,6 +106,7 @@ def test_init_writes_full_scaffold(
 # ---------------------------------------------------------------------------
 # --force scope: only scaffold files; golden_set captures preserved
 # ---------------------------------------------------------------------------
+
 
 def test_init_refuses_when_scaffold_files_exist_without_force(
     runner: CliRunner, tiny_repo: Path, clean_env: None
@@ -157,8 +166,13 @@ def test_init_reset_golden_discards_captures(
     golden_path.write_text(json.dumps(captures), encoding="utf-8")
 
     result = _run(
-        runner, tiny_repo, "init", "--force", "--reset-golden",
-        "--rubric-engine", "rules",
+        runner,
+        tiny_repo,
+        "init",
+        "--force",
+        "--reset-golden",
+        "--rubric-engine",
+        "rules",
     )
     assert result.exit_code == 0
     golden_after = json.loads(golden_path.read_text(encoding="utf-8"))
@@ -166,9 +180,7 @@ def test_init_reset_golden_discards_captures(
     # list has auto-seeds but no real captures.
     task_examples = golden_after["tasks"].get("customer_support_agent", [])
     real = [e for e in task_examples if e.get("seed") != "auto"]
-    assert real == [], (
-        "real captures should be discarded when --reset-golden is passed"
-    )
+    assert real == [], "real captures should be discarded when --reset-golden is passed"
 
 
 def test_init_force_overwrites_rubrics_only(
@@ -215,9 +227,7 @@ def test_init_slm_engine_writes_rubric_with_mocked_client(
     # `_default_complete`; patching that name redirects the CLI path.
     monkeypatch.setattr(slm_builder, "_default_complete", fake_complete)
 
-    result = _run(
-        runner, tiny_repo, "--format", "json", "init", "--rubric-engine", "slm"
-    )
+    result = _run(runner, tiny_repo, "--format", "json", "init", "--rubric-engine", "slm")
     assert result.exit_code == 0, result.stderr or result.stdout
     payload = json.loads(result.stdout)
     assert payload["rubric_engine"] == "slm"

@@ -12,10 +12,7 @@ def _make_rubrics(task_names: list[str]):
     """Return a minimal RubricsConfig-like object with the given task names."""
     from ai_eval.config.schema import JudgeConfig, RubricsConfig, TaskSpec
 
-    tasks = {
-        name: TaskSpec(file_path="src/a.py", type="chat")
-        for name in task_names
-    }
+    tasks = {name: TaskSpec(file_path="src/a.py", type="chat") for name in task_names}
     return RubricsConfig(
         judge=JudgeConfig(default="ollama/qwen2.5-coder:7b"),
         tasks=tasks,

@@ -19,8 +19,8 @@ def render_init_summary(
     *,
     files_scanned: int,
     elapsed_seconds: float,
-    written: list[tuple[str, str]],          # (relative_path, status)
-    tasks: list[tuple[str, str, str]],       # (name, type, file_path)
+    written: list[tuple[str, str]],  # (relative_path, status)
+    tasks: list[tuple[str, str, str]],  # (name, type, file_path)
     next_command: str,
     no_color: bool,
 ) -> None:
@@ -31,9 +31,7 @@ def render_init_summary(
         f"in {elapsed_seconds:.1f}s"
     )
     if tasks:
-        console.print(
-            f"{state_glyph(PASS, no_color=no_color)} detected {len(tasks)} AI task(s)"
-        )
+        console.print(f"{state_glyph(PASS, no_color=no_color)} detected {len(tasks)} AI task(s)")
         for name, kind, path in tasks:
             console.print(f"  - [cyan]{name}[/cyan]  ({kind})   {path}")
     else:
@@ -56,18 +54,12 @@ def render_dry_run_summary(
 ) -> None:
     """Render `ai-evals init --dry-run` output."""
     console = stdout_console(no_color=no_color)
-    console.print(
-        f"{state_glyph(INFO, no_color=no_color)} dry-run: scanned {files_scanned} files"
-    )
-    console.print(
-        f"{state_glyph(INFO, no_color=no_color)} would detect {len(tasks)} AI task(s)"
-    )
+    console.print(f"{state_glyph(INFO, no_color=no_color)} dry-run: scanned {files_scanned} files")
+    console.print(f"{state_glyph(INFO, no_color=no_color)} would detect {len(tasks)} AI task(s)")
     for name, kind, path in tasks:
         console.print(f"  - [cyan]{name}[/cyan]  ({kind})   {path}")
     for path in would_write:
-        console.print(
-            f"{state_glyph(INFO, no_color=no_color)} would write {path}"
-        )
+        console.print(f"{state_glyph(INFO, no_color=no_color)} would write {path}")
 
 
 def render_doctor(checks: list[tuple[str, bool, str]], *, no_color: bool) -> None:
@@ -103,9 +95,7 @@ def render_config(merged: dict, sources: dict[str, str], *, no_color: bool) -> N
     console.print(table)
 
 
-def render_judge_list(
-    rows: list[tuple[str, str, bool, str]], *, no_color: bool
-) -> None:
+def render_judge_list(rows: list[tuple[str, str, bool, str]], *, no_color: bool) -> None:
     """Render `judge --list`. ``rows`` = (role, model, reachable, detail)."""
     console = stdout_console(no_color=no_color)
     table = Table(show_header=True, header_style="bold")
@@ -197,15 +187,28 @@ def render_run(record, *, no_color: bool) -> None:
                 f"auto-seeded fixtures; run `ai-evals bootstrap -- <cmd>` for "
                 f"trustworthy regression baselines"
             )
+        # Per-node scores (AGENTS.md §1): if any example has node_scores, emit a
+        # compact per-node block after the metric table so users see the trace
+        # node-level breakdown. Opt-in: tasks without node_metrics render
+        # unchanged (node_scores is empty).
+        node_rows: list[tuple[str, str]] = []
+        for ex in t.examples:
+            for node_id, scores in getattr(ex, "node_scores", {}).items():
+                if not scores:
+                    continue
+                parts = "  ".join(f"{k}={v:.4f}" for k, v in scores.items())
+                node_rows.append((node_id, parts))
+        if node_rows:
+            console.print(f"  {state_glyph(INFO, no_color=no_color)} nodes:")
+            for node_id, parts in node_rows:
+                console.print(f"    {node_id}  {parts}")
         errs = [e for e in t.errors]
         if errs:
             for e in errs[:5]:
                 console.print(f"  {state_glyph(FAIL, no_color=no_color)} {e}")
 
 
-def render_diff(
-    deltas: dict, narratives: dict, *, no_color: bool, limit: int = 10
-) -> None:
+def render_diff(deltas: dict, narratives: dict, *, no_color: bool, limit: int = 10) -> None:
     """Render per-metric Δ table + regression narratives."""
     console = stdout_console(no_color=no_color)
     table = Table(show_header=True, header_style="bold")
@@ -229,10 +232,12 @@ def render_diff(
                 else state_glyph(PASS, no_color=no_color)
             )
             table.add_row(
-                tname, mname,
+                tname,
+                mname,
                 _fmt_num(row.get("score")),
                 _fmt_num(row.get("baseline_score")),
-                delta, st,
+                delta,
+                st,
             )
     console.print(table)
     if narratives:
@@ -258,10 +263,9 @@ def render_history(runs: list[dict], *, no_color: bool) -> None:
     for r in runs:
         s = r.get("summary", {}) or {}
         import datetime as _dt
+
         ts = r.get("started_at")
-        when = (
-            _dt.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else ""
-        )
+        when = _dt.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else ""
         table.add_row(
             r.get("id", "?"),
             when,

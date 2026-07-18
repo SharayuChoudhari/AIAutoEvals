@@ -91,10 +91,7 @@ def _render_md(record: dict) -> str:
 def _render_html(record: dict) -> str:
     md = _render_md(record)
     body = (
-        md.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\n", "<br/>\n")
+        md.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>\n")
     )
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"

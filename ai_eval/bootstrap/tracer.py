@@ -27,9 +27,7 @@ from typing import Any
 #: Regex for secrets to strip from captured args/results. Matches the common
 #: env-var and header key names; the matched *value* (following ``=`` or in a
 #: dict slot) is masked.
-_SECRET_RE = re.compile(
-    r"(?i)(api[_-]?key|bearer|secret|token|password|passwd|authorization)"
-)
+_SECRET_RE = re.compile(r"(?i)(api[_-]?key|bearer|secret|token|password|passwd|authorization)")
 _SECRET_VALUE_RE = re.compile(
     r"(?i)((?:api[_-]?key|bearer|secret|token|password|passwd|authorization)"
     r"\s*[:=]\s*)(\S+)"
@@ -194,9 +192,7 @@ def exit_task(output: Any = None) -> dict | None:
     return _TRACER.exit(output)
 
 
-def record_call(
-    kind: str, name: str, args: Any, result: Any, latency_ms: float
-) -> None:
+def record_call(kind: str, name: str, args: Any, result: Any, latency_ms: float) -> None:
     _TRACER.record_call(kind, name, args, result, latency_ms)
 
 

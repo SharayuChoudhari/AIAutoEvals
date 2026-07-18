@@ -41,6 +41,7 @@ def fake_complete(monkeypatch: pytest.MonkeyPatch):
             )
 
     import ai_eval.judge.gateway as gw
+
     monkeypatch.setattr(gw, "_default_complete", _fake)
     return holder
 
@@ -65,13 +66,9 @@ def _rubrics(tmp_path: Path, default: str = "fake/local-model") -> None:
     )
 
 
-def test_judge_list_json(
-    runner: CliRunner, tmp_path: Path, fake_complete, clean_env
-) -> None:
+def test_judge_list_json(runner: CliRunner, tmp_path: Path, fake_complete, clean_env) -> None:
     _rubrics(tmp_path)
-    result = runner.invoke(
-        app, ["-C", str(tmp_path), "--format", "json", "judge", "--list"]
-    )
+    result = runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "judge", "--list"])
     assert result.exit_code == 0, result.stderr or result.output
     payload = json.loads(result.stdout)
     roles = [m["role"] for m in payload["models"]]
@@ -81,18 +78,14 @@ def test_judge_list_json(
     assert all(m["reachable"] for m in payload["models"])
 
 
-def test_judge_list_human(
-    runner: CliRunner, tmp_path: Path, fake_complete, clean_env
-) -> None:
+def test_judge_list_human(runner: CliRunner, tmp_path: Path, fake_complete, clean_env) -> None:
     _rubrics(tmp_path)
     result = runner.invoke(app, ["-C", str(tmp_path), "judge", "--list"])
     assert result.exit_code == 0
     assert "fake/local-model" in result.output
 
 
-def test_judge_ping_ok(
-    runner: CliRunner, tmp_path: Path, fake_complete, clean_env
-) -> None:
+def test_judge_ping_ok(runner: CliRunner, tmp_path: Path, fake_complete, clean_env) -> None:
     _rubrics(tmp_path)
     result = runner.invoke(
         app, ["-C", str(tmp_path), "--format", "json", "judge", "--ping", "fake/local"]
@@ -102,9 +95,7 @@ def test_judge_ping_ok(
     assert payload["reachable"] is True
 
 
-def test_judge_ping_fail(
-    runner: CliRunner, tmp_path: Path, fake_complete, clean_env
-) -> None:
+def test_judge_ping_fail(runner: CliRunner, tmp_path: Path, fake_complete, clean_env) -> None:
     _rubrics(tmp_path)
     fake_complete["raise_default"] = True
     result = runner.invoke(
@@ -115,9 +106,7 @@ def test_judge_ping_fail(
     assert payload["reachable"] is False
 
 
-def test_judge_prompt_json(
-    runner: CliRunner, tmp_path: Path, fake_complete, clean_env
-) -> None:
+def test_judge_prompt_json(runner: CliRunner, tmp_path: Path, fake_complete, clean_env) -> None:
     _rubrics(tmp_path)
     fake_complete["responses"]["fake/local-model"] = {
         "score": 0.8,
@@ -127,8 +116,15 @@ def test_judge_prompt_json(
     result = runner.invoke(
         app,
         [
-            "-C", str(tmp_path), "--format", "json", "judge",
-            "--prompt", "say hi", "--model", "fake/local-model",
+            "-C",
+            str(tmp_path),
+            "--format",
+            "json",
+            "judge",
+            "--prompt",
+            "say hi",
+            "--model",
+            "fake/local-model",
         ],
     )
     assert result.exit_code == 0, result.stderr or result.output
@@ -137,9 +133,7 @@ def test_judge_prompt_json(
     assert payload["response"]["score"] == 0.8
 
 
-def test_judge_prompt_human(
-    runner: CliRunner, tmp_path: Path, fake_complete, clean_env
-) -> None:
+def test_judge_prompt_human(runner: CliRunner, tmp_path: Path, fake_complete, clean_env) -> None:
     _rubrics(tmp_path)
     result = runner.invoke(
         app, ["-C", str(tmp_path), "judge", "--prompt", "hi", "--model", "fake/local"]
@@ -152,9 +146,7 @@ def test_judge_list_with_defaults_only(
     runner: CliRunner, tmp_path: Path, fake_complete, clean_env
 ) -> None:
     # no rubrics.yaml -> falls back to built-in judge.default
-    result = runner.invoke(
-        app, ["-C", str(tmp_path), "--format", "json", "judge", "--list"]
-    )
+    result = runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "judge", "--list"])
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     roles = [m["role"] for m in payload["models"]]
@@ -165,7 +157,5 @@ def test_judge_mutually_exclusive(
     runner: CliRunner, tmp_path: Path, fake_complete, clean_env
 ) -> None:
     _rubrics(tmp_path)
-    result = runner.invoke(
-        app, ["-C", str(tmp_path), "judge", "--list", "--ping", "x"]
-    )
+    result = runner.invoke(app, ["-C", str(tmp_path), "judge", "--list", "--ping", "x"])
     assert result.exit_code == 2

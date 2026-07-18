@@ -10,9 +10,9 @@ from dataclasses import dataclass
 class ImportInfo:
     """Normalized record for one `import` / `from ... import` statement."""
 
-    module: str             # the fully-qualified module being imported
-    name: str               # symbol bound in the local namespace
-    alias: str | None       # the actual local name (e.g. `np` for `numpy as np`)
+    module: str  # the fully-qualified module being imported
+    name: str  # symbol bound in the local namespace
+    alias: str | None  # the actual local name (e.g. `np` for `numpy as np`)
 
 
 def collect_imports(tree: ast.AST) -> list[ImportInfo]:
@@ -43,10 +43,7 @@ def collect_imports(tree: ast.AST) -> list[ImportInfo]:
 
 def has_import_prefix(imports: list[ImportInfo], prefix: str) -> bool:
     """True if any import's module starts with `prefix` (dotted)."""
-    return any(
-        info.module == prefix or info.module.startswith(prefix + ".")
-        for info in imports
-    )
+    return any(info.module == prefix or info.module.startswith(prefix + ".") for info in imports)
 
 
 def attr_chain(node: ast.AST) -> list[str]:

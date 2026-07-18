@@ -51,8 +51,10 @@ declare the task done with a known failing gate.
 
 ### 1. Target the complete job
 
-`ai-evals run` auto-seeds and runs only **public top-level entries** — the
-entrypoint that represents the complete task/job the user cares about:
+`ai-evals run` runs only the **end-to-end entry point** per use case (the
+deepest reachable root) and scores every internal node it calls from the
+captured trace. One entry point is run; its internal calls are scored from
+`example["trace"]["calls"]`, not re-executed.
 
 - A module-level function, OR
 - A public (non-`_`-prefixed) method on the class the detector identified as
@@ -60,19 +62,43 @@ entrypoint that represents the complete task/job the user cares about:
 
 Internal classes/methods — DAOs (`DocumentVectorDAO.search_similar_vectors`),
 evaluators (`SingleQueryEvaluator.evaluate_single`), private methods
-(`_create_workflow`), and IO-coupled service methods — are scaffolded into
-`rubrics.yaml` (so users can opt into them) but are **skipped by auto-seed and
-run** with a notice directing the user to `ai-evals bootstrap` for trustworthy
-baselines.
+(`_create_workflow`), and peer-reached survivors (a root called by another
+surviving root) — are scaffolded into `rubrics.yaml` (so users can opt into
+them) but are **skipped by auto-seed and run** with a notice directing the
+user to `ai-evals bootstrap` for trustworthy baselines.
+
+**Node→metric binding** is declared via `node_metrics: list[NodeMetric]` on the
+entry task. Each `NodeMetric` is `{node_selector, metric: MetricSpec}`. The
+runner walks `example["trace"]["calls"]`, matches nodes by selector
+(`kind=retrieve`, `name~=pgvector`, `name=exact`, `call_index=0`), and scores
+each match with the bound metric. Per-node scores roll into
+`ExampleRecord.node_scores` (keyed by synthetic `node_id` like `retrieve_0`);
+the task-level aggregate is the weighted mean of node scores across examples.
+Author `node_metrics` after a first `ai-evals bootstrap` reveals real
+`call.kind` / `call.name` values — `init` writes `node_metrics: []`.
+
+**`_Stub`/`_fake_call_args` are gone.** Dotted `Class.method` entries
+construct with no args (or a harness). An IO-coupled entry point whose
+`__init__` requires real args and has no harness fails with a clear
+bootstrap-directed error (not a `RecursionError`/`AttributeError` from a
+stub). The harness writer (D5) stays: it monkey-patches `self.<dao>.<method>()`
+reads so the entry run is green without a live DB/HTTP backend.
+
+**The auto-seed contract** now applies only to pure-LLM entry points (all
+top-level tasks get the 5 shape-varied inputs). IO-coupled entry points are
+no longer auto-seeded (the `_Stub`-driven single green-pipeline example is
+removed): they require `ai-evals bootstrap` to capture a real trace before
+`run` can score their nodes.
 
 **Do NOT add arg-binding heuristics** to make internal methods callable from a
 scalar auto-seed. That path is closed by design — the `_build_call_args`
 scalar-binding logic exists only for legitimate top-level pure-LLM entries of
-varying arity.
+varying arity, and a required non-str param it can't bind raises a clear
+`TypeError` directing to bootstrap.
 
 The `top_level: bool` field on `TaskSpec` (default `True` for backward compat)
-controls this. The detector/synthesize layer sets it; the seeder and runner
-honor it.
+controls this. The detector/synthesize layer sets it (including the Layer 3
+peer-reached demotion in `task_selection.py`); the seeder and runner honor it.
 
 ### 2. Metric registry split
 
@@ -106,19 +132,23 @@ Merge order in `load_metrics` / `load_judge_metrics`:
 
 - **Seeder** (`ai_eval/scaffold/seeder.py`): produces shape-varied inputs
   (`""`, `"hi"`, long, unicode, boundary) for pure-LLM top-level tasks. Skips
-  non-top-level tasks entirely. IO-coupled tasks get a single green-pipeline
-  example (the harness supplies canned IO).
+  non-top-level tasks entirely. IO-coupled entry points are no longer
+  auto-seeded (the `_Stub` path is removed): they require
+  `ai-evals bootstrap` to capture a real trace before `run` can score their
+  nodes.
 - **Harness** (`ai_eval/scaffold/harness_writer.py`): monkey-patches
-  `self.<dao>.<method>()` reads for IO-coupled tasks so the method body runs
-  without a live DB/HTTP backend. Region-split: auto-generated wiring vs.
-  user-editable fixture data.
+  `self.<dao>.<method>()` reads for IO-coupled entry points so the entry run
+  is green without a live DB/HTTP backend. Region-split: auto-generated wiring
+  vs. user-editable fixture data. The harness is now for entry-point
+  construction only (it supplies canned reads so a bare `cls()` works).
 - **Judge gateway** (`ai_eval/judge/gateway.py`): transport-injected via
   `complete_fn`. Tests pass a fake; production uses LiteLLM. The engine never
   makes a direct network call.
 - **Registry** (`ai_eval/metrics/registry.py`): the single validation surface
   consulted by `MetricSpec` (schema-load time, lenient — warns) and
   `assert_metric_implemented` (run time, strict — raises
-  `MetricNotImplementedError`, exit 1).
+  `MetricNotImplementedError`, exit 1). Node metrics are validated on the same
+  surface so a typo'd `node_metrics` name fails fast at run start.
 
 ### 4. One-release deprecation window
 

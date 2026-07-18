@@ -50,8 +50,8 @@ DEFAULT_RUBRIC_ENGINE = "hybrid"
 
 
 class MergeStrategy(str, Enum):
-    KEEP = "keep"              # keep existing values on conflict
-    OVERWRITE = "overwrite"    # take new values on conflict
+    KEEP = "keep"  # keep existing values on conflict
+    OVERWRITE = "overwrite"  # take new values on conflict
     # PROMPT removed — it was never wired to actual prompting.
 
 
@@ -211,9 +211,7 @@ def analyze_command(
             judge_default=existing.get("judge", {}).get("default") or DEFAULT_JUDGE,
             judge_regression=existing.get("judge", {}).get("regression_check")
             or DEFAULT_REGRESSION_JUDGE,
-            caps=make_caps(
-                rubric_max_snippet_chars, rubric_max_tasks, rubric_budget_tokens
-            ),
+            caps=make_caps(rubric_max_snippet_chars, rubric_max_tasks, rubric_budget_tokens),
             hints_path=paths.hints_yaml,
         )
     except typer.Exit:
@@ -234,10 +232,13 @@ def analyze_command(
 
     # For diff display, compare against the stripped-header version so the diff
     # shows only meaningful content changes (not header re-emission noise).
-    old_body = yaml.safe_dump(existing, sort_keys=False, default_flow_style=False, indent=2) \
-        if existing else ""
+    old_body = (
+        yaml.safe_dump(existing, sort_keys=False, default_flow_style=False, indent=2)
+        if existing
+        else ""
+    )
 
-    no_change = (merged == existing)
+    no_change = merged == existing
 
     if opts.effective_format == OutputFormat.JSON:
         json_dump(

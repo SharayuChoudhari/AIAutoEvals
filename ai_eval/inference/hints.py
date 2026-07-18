@@ -31,10 +31,7 @@ def parse_hints(path: Path) -> HintsFile:
         return HintsFile()
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(raw, dict):
-        raise ValueError(
-            f"hints file {path} must be a YAML mapping (got "
-            f"{type(raw).__name__})"
-        )
+        raise ValueError(f"hints file {path} must be a YAML mapping (got {type(raw).__name__})")
     return HintsFile.model_validate(raw)
 
 

@@ -59,9 +59,7 @@ class TaskEvidence:
     file_path: str = ""
 
 
-def _function_source(
-    project_root: Path, file_path: str, entry: str | None
-) -> str | None:
+def _function_source(project_root: Path, file_path: str, entry: str | None) -> str | None:
     """Return the ``ast.unparse``-ed source of the enclosing function, or None."""
     if not entry:
         return None
