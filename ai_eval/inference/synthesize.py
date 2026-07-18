@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from ai_eval.config.schema import (
 )
 from ai_eval.inference.ast_scan import ScanResult
 from ai_eval.inference.detectors.base import DetectedTask
+from ai_eval.inference.signatures import class_init_requires_nonstr_args
 from ai_eval.inference.task_selection import select_tasks
 
 # Default metric set per task type. Matches design §2.6 (Phase 4 metrics).
@@ -117,6 +119,50 @@ def _is_private_entry(entry: str | None) -> bool:
     return False
 
 
+def _requires_io_args(
+    task: DetectedTask,
+    *,
+    project_root: Path | None,
+    file_trees: dict[str, ast.AST | None],
+) -> bool:
+    """Synthesis-time IO-coupled demotion for ``Class.method`` tasks.
+
+    Returns ``True`` when the task's class ``__init__`` has a required
+    positional/keyword arg (after ``self``) whose annotation is NOT in the
+    str-bindable / runner-known allow-list — the signature of an IO-coupled
+    entry (DAO needing ``session``, service needing ``config``, …). Such
+    tasks cannot be auto-seeded or run bare (``cls()`` raises ``TypeError``),
+    so they are demoted to ``top_level=False`` (AGENTS.md §1).
+
+    Pure-AST: re-parses ``task.file_path`` under ``project_root`` (cached in
+    ``file_trees`` so multiple tasks in the same file don't re-parse).
+    Over-promotion-safe: returns ``False`` when the file can't be read, the
+    class can't be found, or ``__init__`` is absent — the task stays
+    top-level and the runtime ``TypeError`` path (``engine.py``) is the
+    last-resort diagnostic. Bare module-level entries (no ``.``) return
+    ``False`` (no ``__init__`` to inspect).
+    """
+    if task.entry is None or "." not in task.entry:
+        return False
+    if project_root is None or not task.file_path:
+        return False
+    cls_name = task.entry.rsplit(".", 1)[0]
+    tree = file_trees.get(task.file_path)
+    if tree is None:
+        fpath = Path(task.file_path)
+        if not fpath.is_absolute():
+            fpath = project_root / task.file_path
+        try:
+            source = fpath.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(fpath))
+        except (OSError, UnicodeDecodeError, SyntaxError):
+            tree = None
+        file_trees[task.file_path] = tree
+    if tree is None:
+        return False
+    return class_init_requires_nonstr_args(tree, cls_name)
+
+
 def _camel_to_snake(name: str) -> str:
     """``ChatMessageService`` → ``chat_message_service``.
 
@@ -184,12 +230,16 @@ def build_rubrics(
             judge_code_globs=judge_code_globs,
             force_task_keys=force_task_keys,
         )
+    forced = force_task_keys or set()
     judge = JudgeConfig(
         default=judge_default or DEFAULT_JUDGE,
         regression_check=judge_regression or DEFAULT_REGRESSION_JUDGE,
     )
     used_names: set[str] = set()
     task_specs: dict[str, TaskSpec] = {}
+    # Per-file AST cache so multiple tasks in the same file don't re-parse.
+    # Populated lazily by ``_requires_io_args`` (None sentinel = unparseable).
+    file_trees: dict[str, ast.AST | None] = {}
     for task in scan.tasks:
         name = _unique_name(_rubric_key_name(task), used_names)
         used_names.add(name)
@@ -197,6 +247,24 @@ def build_rubrics(
         # task's shape to rag, keep per-task metrics consistent with the
         # promoted project_type rather than leaving a chat-typed metric set.
         task_type = "rag" if _looks_like_rag(task) and task.type != "rag" else task.type
+        # Demotion gate (AGENTS.md §1): a task is top-level only if
+        #   (a) the detector/selection layer marked it top_level,
+        #   (b) it's not a private ``_``-prefixed method,
+        #   (c) it's not a force_task (escape hatch — immune to demotion),
+        #   (d) its class ``__init__`` doesn't require a non-str-bindable arg
+        #       (IO-coupled: needs ``session``/``config``/``db`` → skip run).
+        # force_task must be checked FIRST: a forced task is an explicit user
+        # override of the call graph, so it stays top_level regardless of the
+        # signature-inspection heuristic.
+        is_forced = (task.file_path, task.entry) in forced
+        if is_forced:
+            top_level = True
+        else:
+            top_level = task.top_level and not _is_private_entry(task.entry)
+            if top_level and _requires_io_args(
+                task, project_root=project_root, file_trees=file_trees
+            ):
+                top_level = False
         task_specs[name] = TaskSpec(
             file_path=task.file_path,
             entry=task.entry,
@@ -204,7 +272,7 @@ def build_rubrics(
             inputs=task.inputs,
             outputs=task.outputs,
             metrics=list(_DEFAULT_METRICS.get(task_type, _DEFAULT_METRICS["chat"])),
-            top_level=task.top_level and not _is_private_entry(task.entry),
+            top_level=top_level,
         )
     return RubricsConfig(
         schema_version=SCHEMA_VERSION,

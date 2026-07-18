@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 
+from ai_eval.inference.types import RUNNABLE_INIT_TYPES
+
 
 @dataclass(frozen=True)
 class ImportInfo:
@@ -183,10 +185,157 @@ def has_openai_tool_kwarg(call: ast.Call) -> bool:
     return any(kw.arg in OPENAI_TOOL_KWARGS for kw in call.keywords)
 
 
+# ---------------------------------------------------------------------------
+# __init__-signature inspection — synthesis-time demotion of IO-coupled
+# class methods (AGENTS.md §1). Pure-AST; no import/execution.
+# ---------------------------------------------------------------------------
+
+
+def _annotation_name(node: ast.expr | None) -> str | None:
+    """Flatten an annotation AST node to its dotted source-form string.
+
+    Returns the textual form a developer would type:
+      ``str``                  → ``"str"``
+      ``Optional[str]``        → ``"Optional[str]"``
+      ``str | None``           → ``"str | None"``
+      ``Session``              → ``"Session"``
+      ``asyncpg.Connection``   → ``"Connection"`` (trailing attr only, so it
+                                  matches the allow-list by class name)
+
+    ``None`` when ``node`` is absent (an unannotated param) or has a shape we
+    don't bother stringifying (e.g. ``Callable[...]``). The demotion logic in
+    :func:`class_init_requires_nonstr_args` treats an unannotated required
+    param as NOT runnable (``cls()`` would fail on it), so ``None`` here
+    correctly falls through to the demotion branch.
+    """
+    if node is None:
+        return None
+    if isinstance(node, ast.Constant):
+        # ``None`` (the singleton) and string-literal annotations
+        # (``"str"`` forward refs) — render as their Python literal so a
+        # ``str | None`` union's right side yields ``"None"`` and the full
+        # union string ``"str | None"`` matches the allow-list.
+        return repr(node.value) if node.value is None else str(node.value)
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        # Use only the trailing attribute name so ``asyncpg.Connection``
+        # normalizes to ``Connection`` (matched against the bare-name
+        # allow-list; matches by class name, not import path).
+        return node.attr
+    if isinstance(node, ast.Subscript):
+        # ``Optional[str]`` / ``list[str]`` → render as ``Optional[str]``.
+        value = _annotation_name(node.value)
+        slc = _annotation_name(node.slice)
+        if value is None:
+            return None
+        return f"{value}[{slc}]" if slc is not None else f"{value}[?]"
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        # ``str | None`` (PEP 604). Reconstruct the full union string so the
+        # allow-list can match ``"str | None"`` exactly.
+        left = _annotation_name(node.left)
+        right = _annotation_name(node.right)
+        if left is None or right is None:
+            return None
+        return f"{left} | {right}"
+    return None
+
+
+def class_init_requires_nonstr_args(tree: ast.AST, class_name: str) -> bool:
+    """Return ``True`` when the class's ``__init__`` has a required positional
+    or keyword arg (after ``self``) whose annotation is NOT in the
+    str-bindable / runner-known allow-list (:data:`RUNNABLE_INIT_TYPES`).
+
+    This is the synthesis-time signal that a ``Class.method`` task is
+    IO-coupled (its construction needs a real backend arg like ``session``,
+    ``config``, ``db``) and should be demoted to ``top_level=False`` so the
+    seeder and runner skip it (AGENTS.md §1). The runner constructs dotted
+    entries with a bare ``cls()`` (no args), so ANY required ``__init__`` param
+    breaks construction — unless its annotation is a type the harness/runner
+    already know how to build (LLM client, compiled graph) or could bind from
+    the auto-seed scalar (``str`` / ``Any`` shapes).
+
+    Pure-AST: no import or execution of the class.
+
+    Demotion contract (over-promotion-safe):
+
+    * **Required param (no default) with no annotation** → demotes (``True``).
+      The classic IO-coupled signature: ``def __init__(self, session): ...``.
+      ``cls()`` fails with ``TypeError: missing required positional argument``.
+    * **Required param with annotation in the allow-list** (``str``,
+      ``Optional[str]``, ``str | None``, ``Any``, LLM-client names,
+      compiled-graph names) → runnable, ``False``. These are the types the
+      runner/harness already know how to construct
+      (see :mod:`ai_eval.inference.types`), or that a future runner path
+      could bind from the scalar auto-seed. Over-demotion here would drop
+      legitimate LangGraph / LangChain entries whose ``__init__`` takes a
+      compiled graph or LLM client.
+    * **Required param with annotation NOT in the allow-list** (``Session``,
+      ``Config``, ``Connection``, …) → demotes (``True``). The harness
+      doesn't construct these; ``cls()`` fails.
+    * **Param with a default** → never required, never demotes (``False``).
+    * **No ``__init__`` defined** (inherits ``object.__init__``) → ``False``.
+      A class with no custom ``__init__`` takes no required args.
+    * **No class named ``class_name`` in ``tree``** → ``False`` (can't tell,
+      don't demote).
+
+    The allow-list is :data:`ai_eval.inference.types.RUNNABLE_INIT_TYPES`:
+    the union of LLM-client names, compiled-graph names, and the str/Any
+    shapes the engine's ``_build_call_args`` binds from a scalar auto-seed.
+    """
+    if not isinstance(tree, ast.Module):
+        return False
+    cls_node: ast.ClassDef | None = None
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            cls_node = node
+            break
+    if cls_node is None:
+        return False
+    init_node: ast.FunctionDef | ast.AsyncFunctionDef | None = None
+    for child in cls_node.body:
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if child.name == "__init__":
+                init_node = child
+                break
+    if init_node is None:
+        return False
+    args = init_node.args
+    # Build the (arg, default) pairs. Positional-or-keyword args are aligned
+    # with the trailing ``args.defaults`` list; kw-only args with
+    # ``kw_defaults`` (``None`` sentinel = no default).
+    pos_args = list(args.posonlyargs) + list(args.args)
+    pos_defaults = list(args.defaults)
+    # The last ``len(pos_defaults)`` positional args have the defaults.
+    num_no_default_pos = len(pos_args) - len(pos_defaults)
+    pos_pairs: list[tuple[ast.arg, ast.expr | None]] = []
+    for i, a in enumerate(pos_args):
+        default = pos_defaults[i - num_no_default_pos] if i >= num_no_default_pos else None
+        pos_pairs.append((a, default))
+    kw_pairs: list[tuple[ast.arg, ast.expr | None]] = []
+    for a, d in zip(args.kwonlyargs, args.kw_defaults, strict=True):
+        kw_pairs.append((a, d))
+    for arg, default in pos_pairs + kw_pairs:
+        if arg.arg == "self":
+            continue
+        if default is not None:
+            continue
+        ann = _annotation_name(arg.annotation)
+        # Required param. Demote unless its annotation is in the runnable
+        # allow-list (LLM client / graph / str / Any). An unannotated required
+        # param (``session``) demotes: ``cls()`` can't satisfy it and the
+        # harness only patches method reads, not ``__init__`` args.
+        if ann in RUNNABLE_INIT_TYPES:
+            continue
+        return True
+    return False
+
+
 __all__ = [
     "OPENAI_TOOL_KWARGS",
     "ImportInfo",
     "attr_chain",
+    "class_init_requires_nonstr_args",
     "collect_imports",
     "enclosing_def_name",
     "find_callable_defs",

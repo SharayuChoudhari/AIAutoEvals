@@ -154,3 +154,35 @@ def test_bootstrap_replace_mode(runner: CliRunner, tmp_path: Path, clean_env) ->
     queries = [ex["input"]["query"] for ex in golden["tasks"]["chat_task"]]
     assert "old" not in queries  # replaced
     assert "hello" in queries
+
+
+def test_bootstrap_does_not_modify_rubrics_top_level(
+    runner: CliRunner, tmp_path: Path, clean_env
+) -> None:
+    """AGENTS.md §1 contract: bootstrap is capture-only. It must never edit
+    ``rubrics.yaml`` — in particular it must not flip ``top_level`` flags.
+    Users re-run ``ai-evals init`` to regenerate ``top_level`` from the
+    signature-inspection + Layer 3 demotion pipeline."""
+    _rubrics(tmp_path)
+    # Inject a non-top-level task into rubrics.yaml before bootstrap.
+    rubrics_path = tmp_path / "eval" / "rubrics.yaml"
+    rubrics_data = json.loads(rubrics_path.read_text())
+    rubrics_data["tasks"]["internal_dao"] = {
+        "file_path": "src/dao.py",
+        "entry": "DAO.search",
+        "type": "chat",
+        "top_level": False,
+        "metrics": [{"name": "hallucination_rate", "threshold": 0.1}],
+    }
+    rubrics_path.write_text(json.dumps(rubrics_data), encoding="utf-8")
+    mtime_before = rubrics_path.stat().st_mtime_ns
+
+    cmd = [sys.executable, "-c", _RUNTIME_SNIPPET]
+    result = runner.invoke(app, ["-C", str(tmp_path), "--format", "json", "bootstrap", "--", *cmd])
+    assert result.exit_code == 0, result.stderr or result.output
+
+    # rubrics.yaml must be byte-for-byte untouched (mtime unchanged).
+    assert rubrics_path.stat().st_mtime_ns == mtime_before
+    after = json.loads(rubrics_path.read_text())
+    assert after["tasks"]["internal_dao"]["top_level"] is False
+    assert after["tasks"]["chat_task"].get("top_level", True) is True

@@ -420,7 +420,7 @@ wheels = [
 
 [[package]]
 name = "dot-ai-evals"
-version = "0.1.7"
+version = "0.1.8"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },

@@ -154,6 +154,10 @@ def _fallback_task_spec(task: DetectedTask) -> TaskSpec:
         inputs=list(task.inputs),
         outputs=list(task.outputs),
         metrics=metrics,
+        # Propagate the detector/selection layer's top_level verdict so Layer 3
+        # peer-reach demotion survives the SLM path (previously this clobbered
+        # ``task.top_level`` with ``not _is_private_entry(task.entry)``,
+        # silently undoing demotion for SLM/hybrid runs).
         top_level=task.top_level and not _is_private_entry(task.entry),
     )
 
@@ -260,22 +264,30 @@ def _apply_hint_type_pin(slm: _SLMTask, task: DetectedTask) -> None:
 
 def _task_spec_from_slm(
     slm: _SLMTask,
+    task: DetectedTask,
     *,
-    file_path: str,
-    entry: str | None,
     project_root: Path | None = None,
 ) -> TaskSpec:
+    """Convert an SLM-classified task into a :class:`TaskSpec`.
+
+    The SLM owns purpose/type/inputs/outputs/metrics, but ``top_level`` is
+    NOT the SLM's to set — it comes from the detector/selection layer
+    (``task.top_level``), gated by the private-method check. This preserves
+    Layer 3 peer-reach demotion and signature-inspection decisions made
+    upstream so the SLM path can't silently undo them (regression: previously
+    this used ``not _is_private_entry(entry)`` which clobbered any demotion).
+    """
     from ai_eval.inference.synthesize import _is_private_entry
 
     return TaskSpec(
-        file_path=file_path,
-        entry=entry,
+        file_path=task.file_path,
+        entry=task.entry,
         type=slm.type,
         purpose=slm.purpose,
         inputs=list(slm.inputs),
         outputs=list(slm.outputs),
         metrics=_metric_specs_from_slm(slm.metrics, project_root=project_root),
-        top_level=not _is_private_entry(entry),
+        top_level=task.top_level and not _is_private_entry(task.entry),
     )
 
 
@@ -402,10 +414,23 @@ def build_rubrics_slm(
         for named in recovered:
             name = _unique_name(_collapse_dotted_name(named.name, named.entry), used_names)
             used_names.add(name)
-            task_specs[name] = _task_spec_from_slm(
-                named,
+            # The empty-recover path proposes brand-new entry points from the
+            # repo's entry-point files — there's no upstream detector verdict
+            # to propagate, so synthesize a DetectedTask with the default
+            # ``top_level=True`` (the private-method check still applies inside
+            # ``_task_spec_from_slm``).
+            recovered_task = DetectedTask(
+                name=named.name,
+                framework="slm",
+                type=named.type,
                 file_path=named.file_path,
                 entry=named.entry,
+                inputs=list(named.inputs),
+                outputs=list(named.outputs),
+            )
+            task_specs[name] = _task_spec_from_slm(
+                named,
+                recovered_task,
                 project_root=project_root,
             )
 
@@ -503,9 +528,7 @@ def _classify_one_task(
         return _fallback_task_spec(task), prompt_chars
     _apply_rag_downgrade_guard(slm, task)
     _apply_hint_type_pin(slm, task)
-    return _task_spec_from_slm(
-        slm, file_path=task.file_path, entry=task.entry, project_root=project_root
-    ), prompt_chars
+    return _task_spec_from_slm(slm, task, project_root=project_root), prompt_chars
 
 
 def _recover_empty(

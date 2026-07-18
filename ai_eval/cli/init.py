@@ -303,6 +303,30 @@ def init_command(
     # Write phase.
     written: list[tuple[str, str]] = []
     try:
+        # Generate IO-coupled harnesses FIRST so the second-pass demotion
+        # (IO-coupled without a harness → top_level=False) lands in the
+        # rubrics BEFORE they're written to disk. The harness writer doesn't
+        # depend on rubrics.yaml existing (it reads the in-memory RubricsConfig
+        # and the on-disk task files), so this ordering is safe.
+        harness_written, io_coupled_names = write_harnesses(
+            rubrics, paths.eval_dir, project_root=opts.cwd
+        )
+        # Second-pass demotion safety net (AGENTS.md §1): a task flagged
+        # IO-coupled that got NO harness file (no stubbable self.<attr> reads
+        # resolved, but the body still touches IO through a path the signature
+        # heuristic missed) is demoted to top_level=False so the runner skips
+        # it with the bootstrap notice rather than crashing on construction.
+        # Tasks that DID get a harness stay top-level: the harness makes
+        # ``cls()`` work. ``write_harnesses`` returns ``(task_name, status)``
+        # so the membership check is a direct task-name comparison against
+        # ``io_coupled_names`` (also task names).
+        harnessed = {n for n, _ in harness_written}
+        for io_name in io_coupled_names:
+            if io_name in harnessed:
+                continue
+            if io_name in rubrics.tasks and rubrics.tasks[io_name].top_level:
+                rubrics.tasks[io_name].top_level = False
+
         rubrics_writer.write(rubrics, paths.rubrics_yaml)
         written.append((str(paths.rubrics_yaml.relative_to(opts.cwd)), "wrote"))
 
@@ -317,16 +341,6 @@ def init_command(
         tests_writer.write(paths.tests_py)
         written.append((str(paths.tests_py.relative_to(opts.cwd)), "wrote"))
 
-        # IO-coupled tasks get a stub harness (D5): monkey-patches their
-        # self.<dao>.<method>() reads with canned fixtures so `run` is green
-        # without a live DB/HTTP backend. Region-split; regenerable wiring is
-        # AST-hash-gated, fixtures preserved across regenerations. The
-        # returned IO-coupled names are not used for seeding anymore (the
-        # ``_Stub`` path is removed — AGENTS.md §1): IO-coupled entry points
-        # require ``ai-evals bootstrap`` to capture a real trace.
-        harness_written, _io_coupled_names = write_harnesses(
-            rubrics, paths.eval_dir, project_root=opts.cwd
-        )
         for hname, hstatus in harness_written:
             written.append((str(paths.eval_dir.relative_to(opts.cwd) / hname), hstatus))
 

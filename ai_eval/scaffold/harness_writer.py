@@ -33,34 +33,7 @@ from pathlib import Path
 from ai_eval.config.schema import RubricsConfig, TaskSpec
 from ai_eval.inference.callgraph import FileContext, build_call_graph
 from ai_eval.inference.signatures import iter_calls
-
-#: Known LLM-client type names (D4): assignments to these are NOT stubbed —
-#: the client runs real (needs an API key, not canned data).
-_LLM_CLIENT_TYPES: frozenset[str] = frozenset(
-    {
-        "OpenAI",
-        "AzureOpenAI",
-        "AsyncOpenAI",
-        "ChatOpenAI",
-        "Anthropic",
-        "ChatAnthropic",
-        "Ollama",
-        "HuggingFaceHub",
-        "HuggingFacePipeline",
-        "ChatGoogleGenerativeAI",
-    }
-)
-
-#: Known compiled framework-graph object names (D4): assignments to these run
-#: real (they orchestrate the LLM; stubbing them would defeat the eval).
-_GRAPH_TYPES: frozenset[str] = frozenset(
-    {
-        "StateGraph",
-        "RunnableSequence",
-        "CompiledGraph",
-        "CompiledStateGraph",
-    }
-)
+from ai_eval.inference.types import GRAPH_TYPES, LLM_CLIENT_TYPES
 
 
 @dataclass
@@ -113,9 +86,9 @@ def _is_stub_target(ctor_name: str | None) -> bool:
     (safe: don't fabricate a stub for an unknown type)."""
     if ctor_name is None:
         return False
-    if ctor_name in _LLM_CLIENT_TYPES:
+    if ctor_name in LLM_CLIENT_TYPES:
         return False
-    if ctor_name in _GRAPH_TYPES:
+    if ctor_name in GRAPH_TYPES:
         return False
     return True
 
@@ -349,10 +322,14 @@ def write_harnesses(
 ) -> tuple[list[tuple[str, str]], set[str]]:
     """Generate ``eval/_harness_<task>.py`` for every IO-coupled task.
 
-    Returns ``([(relative_path, status)], io_coupled_task_names)`` where status
+    Returns ``([(task_name, status)], io_coupled_task_names)`` where status
     is ``"wrote"`` (new), ``"refreshed"`` (region 1 regenerated because the body
     hash changed), or ``"skipped"`` (hash unchanged, file untouched). The
-    ``io_coupled_task_names`` set lets the golden-set seeder (D6) give those
+    first element of each tuple is the **task name** (not the harness file
+    name) so callers can correlate harnesses with rubrics tasks directly —
+    the harness file path is ``eval/_harness_<safe(task_name)>.py``.
+
+    The ``io_coupled_task_names`` set lets the golden-set seeder (D6) give those
     tasks a single green-pipeline example instead of the pure-LLM variant set.
 
     Pure-LLM tasks get no harness. Region 2 (fixtures) is preserved across
@@ -393,12 +370,12 @@ def write_harnesses(
         existing_hash = _existing_body_hash(path)
         region2 = _existing_region2(path)
         if existing_hash == spec.body_hash and path.is_file():
-            written.append((path.name, "skipped"))
+            written.append((spec.task_name, "skipped"))
             continue
         content = render_harness(spec, existing_region2=region2)
         path.write_text(content, encoding="utf-8")
         status = "refreshed" if existing_hash is not None else "wrote"
-        written.append((path.name, status))
+        written.append((spec.task_name, status))
     return written, io_coupled_names
 
 

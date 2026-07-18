@@ -226,3 +226,438 @@ def test_independent_use_cases_keep_their_own_root(tmp_path: Path) -> None:
     rubrics = build_rubrics(scan, project_root=tmp_path)
     assert rubrics.tasks["chat"].top_level is True
     assert rubrics.tasks["ingest"].top_level is True
+
+
+# ---------------------------------------------------------------------------
+# Signature-inspection demotion (AGENTS.md §1): a ``Class.method`` whose
+# ``__init__`` requires a non-str-bindable arg (session/config/db) is demoted
+# to ``top_level=False`` at synthesis time so the runner skips it rather than
+# crashing on ``cls()``. Over-promotion-safe: missing ``__init__``, str-only
+# args, defaulted args, and unparseable files all stay top-level.
+# ---------------------------------------------------------------------------
+
+
+def test_dao_init_requires_session_is_demoted(tmp_path: Path) -> None:
+    """``DocumentVectorDAO.__init__(self, session)`` → demoted: the DAO can't
+    be constructed bare, so it's not a runnable top-level entry."""
+    from ai_eval.inference.ast_scan import ScanResult
+    from ai_eval.inference.detectors.base import DetectedTask
+    from ai_eval.inference.synthesize import build_rubrics
+
+    (tmp_path / "dao.py").write_text(
+        "class DocumentVectorDAO:\n"
+        "    def __init__(self, session):\n"
+        "        self.session = session\n"
+        "    def search_similar_vectors(self, query_embedding):\n"
+        "        return self.session.execute(query_embedding)\n",
+        encoding="utf-8",
+    )
+    scan = ScanResult(
+        files_scanned=1,
+        elapsed_seconds=0.0,
+        tasks=[
+            DetectedTask(
+                name="DocumentVectorDAO.search_similar_vectors",
+                framework="pgvector",
+                type="rag",
+                file_path="dao.py",
+                entry="DocumentVectorDAO.search_similar_vectors",
+                inputs=["query_embedding"],
+                outputs=["documents"],
+            ),
+        ],
+        frameworks_seen={"pgvector"},
+    )
+    rubrics = build_rubrics(scan, project_root=tmp_path)
+    assert rubrics.tasks["document_vector_d_a_o_search_similar_vectors"].top_level is False
+
+
+def test_dao_init_with_str_default_stays_top_level(tmp_path: Path) -> None:
+    """``__init__(self, query: str = "")`` → NOT demoted (str-bindable,
+    has a default). No false demotion on runnable entries."""
+    from ai_eval.inference.ast_scan import ScanResult
+    from ai_eval.inference.detectors.base import DetectedTask
+    from ai_eval.inference.synthesize import build_rubrics
+
+    (tmp_path / "svc.py").write_text(
+        "class Svc:\n"
+        "    def __init__(self, query: str = ''):\n"
+        "        self.query = query\n"
+        "    def run(self, q):\n"
+        "        return q\n",
+        encoding="utf-8",
+    )
+    scan = ScanResult(
+        files_scanned=1,
+        elapsed_seconds=0.0,
+        tasks=[
+            DetectedTask(
+                name="Svc.run",
+                framework="openai",
+                type="chat",
+                file_path="svc.py",
+                entry="Svc.run",
+            ),
+        ],
+        frameworks_seen={"openai"},
+    )
+    rubrics = build_rubrics(scan, project_root=tmp_path)
+    assert rubrics.tasks["svc_run"].top_level is True
+
+
+def test_dao_init_no_args_stays_top_level(tmp_path: Path) -> None:
+    """``__init__(self)`` (or no custom ``__init__``) → NOT demoted: no
+    required args, ``cls()`` works."""
+    from ai_eval.inference.ast_scan import ScanResult
+    from ai_eval.inference.detectors.base import DetectedTask
+    from ai_eval.inference.synthesize import build_rubrics
+
+    (tmp_path / "svc.py").write_text(
+        "class Svc:\n"
+        "    def __init__(self):\n"
+        "        pass\n"
+        "    def run(self, q):\n"
+        "        return q\n",
+        encoding="utf-8",
+    )
+    scan = ScanResult(
+        files_scanned=1,
+        elapsed_seconds=0.0,
+        tasks=[
+            DetectedTask(
+                name="Svc.run",
+                framework="openai",
+                type="chat",
+                file_path="svc.py",
+                entry="Svc.run",
+            ),
+        ],
+        frameworks_seen={"openai"},
+    )
+    rubrics = build_rubrics(scan, project_root=tmp_path)
+    assert rubrics.tasks["svc_run"].top_level is True
+
+
+def test_evaluator_init_requires_config_is_demoted(tmp_path: Path) -> None:
+    """``SingleQueryEvaluator.__init__(self, config)`` → demoted: the
+    evaluator needs a config object the auto-seed can't fabricate."""
+    from ai_eval.inference.ast_scan import ScanResult
+    from ai_eval.inference.detectors.base import DetectedTask
+    from ai_eval.inference.synthesize import build_rubrics
+
+    (tmp_path / "eval.py").write_text(
+        "class SingleQueryEvaluator:\n"
+        "    def __init__(self, config):\n"
+        "        self.config = config\n"
+        "    def evaluate_single(self, query):\n"
+        "        return self.config.run(query)\n",
+        encoding="utf-8",
+    )
+    scan = ScanResult(
+        files_scanned=1,
+        elapsed_seconds=0.0,
+        tasks=[
+            DetectedTask(
+                name="SingleQueryEvaluator.evaluate_single",
+                framework="openai",
+                type="chat",
+                file_path="eval.py",
+                entry="SingleQueryEvaluator.evaluate_single",
+            ),
+        ],
+        frameworks_seen={"openai"},
+    )
+    rubrics = build_rubrics(scan, project_root=tmp_path)
+    assert rubrics.tasks["single_query_evaluator_evaluate_single"].top_level is False
+
+
+def test_init_with_llm_client_arg_stays_top_level(tmp_path: Path) -> None:
+    """``__init__(self, client: ChatOpenAI)`` → NOT demoted: LLM-client
+    types are in the runnable allow-list (the runner/harness construct them)."""
+    from ai_eval.inference.ast_scan import ScanResult
+    from ai_eval.inference.detectors.base import DetectedTask
+    from ai_eval.inference.synthesize import build_rubrics
+
+    (tmp_path / "svc.py").write_text(
+        "class Svc:\n"
+        "    def __init__(self, client: ChatOpenAI):\n"
+        "        self.client = client\n"
+        "    def run(self, q):\n"
+        "        return self.client.invoke(q)\n",
+        encoding="utf-8",
+    )
+    scan = ScanResult(
+        files_scanned=1,
+        elapsed_seconds=0.0,
+        tasks=[
+            DetectedTask(
+                name="Svc.run",
+                framework="langchain",
+                type="chat",
+                file_path="svc.py",
+                entry="Svc.run",
+            ),
+        ],
+        frameworks_seen={"langchain"},
+    )
+    rubrics = build_rubrics(scan, project_root=tmp_path)
+    assert rubrics.tasks["svc_run"].top_level is True
+
+
+def test_init_with_optional_str_arg_stays_top_level(tmp_path: Path) -> None:
+    """``__init__(self, q: Optional[str])`` → NOT demoted: ``Optional[str]``
+    is in the str-bindable allow-list."""
+    from typing import Optional  # noqa: F401  (used in the written source)
+
+    from ai_eval.inference.ast_scan import ScanResult
+    from ai_eval.inference.detectors.base import DetectedTask
+    from ai_eval.inference.synthesize import build_rubrics
+
+    (tmp_path / "svc.py").write_text(
+        "from typing import Optional\n"
+        "class Svc:\n"
+        "    def __init__(self, q: Optional[str]):\n"
+        "        self.q = q\n"
+        "    def run(self, x):\n"
+        "        return x\n",
+        encoding="utf-8",
+    )
+    scan = ScanResult(
+        files_scanned=1,
+        elapsed_seconds=0.0,
+        tasks=[
+            DetectedTask(
+                name="Svc.run",
+                framework="openai",
+                type="chat",
+                file_path="svc.py",
+                entry="Svc.run",
+            ),
+        ],
+        frameworks_seen={"openai"},
+    )
+    rubrics = build_rubrics(scan, project_root=tmp_path)
+    assert rubrics.tasks["svc_run"].top_level is True
+
+
+def test_init_with_str_union_none_arg_stays_top_level(tmp_path: Path) -> None:
+    """``__init__(self, q: str | None)`` → NOT demoted: PEP 604 union with
+    None is in the str-bindable allow-list."""
+    from ai_eval.inference.ast_scan import ScanResult
+    from ai_eval.inference.detectors.base import DetectedTask
+    from ai_eval.inference.synthesize import build_rubrics
+
+    (tmp_path / "svc.py").write_text(
+        "class Svc:\n"
+        "    def __init__(self, q: str | None):\n"
+        "        self.q = q\n"
+        "    def run(self, x):\n"
+        "        return x\n",
+        encoding="utf-8",
+    )
+    scan = ScanResult(
+        files_scanned=1,
+        elapsed_seconds=0.0,
+        tasks=[
+            DetectedTask(
+                name="Svc.run",
+                framework="openai",
+                type="chat",
+                file_path="svc.py",
+                entry="Svc.run",
+            ),
+        ],
+        frameworks_seen={"openai"},
+    )
+    rubrics = build_rubrics(scan, project_root=tmp_path)
+    assert rubrics.tasks["svc_run"].top_level is True
+
+
+def test_init_with_defaulted_nonstr_arg_stays_top_level(tmp_path: Path) -> None:
+    """``__init__(self, session=None)`` → NOT demoted: the arg has a default
+    so it's not required. ``cls()`` works (session stays None)."""
+    from ai_eval.inference.ast_scan import ScanResult
+    from ai_eval.inference.detectors.base import DetectedTask
+    from ai_eval.inference.synthesize import build_rubrics
+
+    (tmp_path / "svc.py").write_text(
+        "class Svc:\n"
+        "    def __init__(self, session=None):\n"
+        "        self.session = session\n"
+        "    def run(self, q):\n"
+        "        return q\n",
+        encoding="utf-8",
+    )
+    scan = ScanResult(
+        files_scanned=1,
+        elapsed_seconds=0.0,
+        tasks=[
+            DetectedTask(
+                name="Svc.run",
+                framework="openai",
+                type="chat",
+                file_path="svc.py",
+                entry="Svc.run",
+            ),
+        ],
+        frameworks_seen={"openai"},
+    )
+    rubrics = build_rubrics(scan, project_root=tmp_path)
+    assert rubrics.tasks["svc_run"].top_level is True
+
+
+def test_force_task_immune_to_signature_demotion(tmp_path: Path) -> None:
+    """A force_task key is an explicit user override of the call graph — it
+    must stay top_level even when ``__init__`` requires a non-str arg."""
+    from ai_eval.inference.ast_scan import ScanResult
+    from ai_eval.inference.detectors.base import DetectedTask
+    from ai_eval.inference.synthesize import build_rubrics
+
+    (tmp_path / "dao.py").write_text(
+        "class DAO:\n"
+        "    def __init__(self, session):\n"
+        "        self.session = session\n"
+        "    def search(self, q):\n"
+        "        return q\n",
+        encoding="utf-8",
+    )
+    scan = ScanResult(
+        files_scanned=1,
+        elapsed_seconds=0.0,
+        tasks=[
+            DetectedTask(
+                name="DAO.search",
+                framework="pgvector",
+                type="rag",
+                file_path="dao.py",
+                entry="DAO.search",
+            ),
+        ],
+        frameworks_seen={"pgvector"},
+    )
+    rubrics = build_rubrics(
+        scan,
+        project_root=tmp_path,
+        force_task_keys={("dao.py", "DAO.search")},
+    )
+    assert rubrics.tasks["d_a_o_search"].top_level is True
+
+
+def test_bare_function_not_demoted_by_signature_inspection(tmp_path: Path) -> None:
+    """Module-level functions (no ``.``) are never inspected for ``__init__``
+    args — they have no class. They stay top_level regardless of file
+    contents."""
+    from ai_eval.inference.ast_scan import ScanResult
+    from ai_eval.inference.detectors.base import DetectedTask
+    from ai_eval.inference.synthesize import build_rubrics
+
+    (tmp_path / "fn.py").write_text(
+        "def handler(q):\n    return q\n",
+        encoding="utf-8",
+    )
+    scan = ScanResult(
+        files_scanned=1,
+        elapsed_seconds=0.0,
+        tasks=[
+            DetectedTask(
+                name="handler",
+                framework="openai",
+                type="chat",
+                file_path="fn.py",
+                entry="handler",
+            ),
+        ],
+        frameworks_seen={"openai"},
+    )
+    rubrics = build_rubrics(scan, project_root=tmp_path)
+    assert rubrics.tasks["handler"].top_level is True
+
+
+def test_missing_file_falls_back_to_top_level(tmp_path: Path) -> None:
+    """When the task's file can't be read (deleted, moved), the demotion
+    helper returns False (over-promotion-safe) — the task stays top_level
+    and the runtime ``TypeError`` path is the last-resort diagnostic."""
+    from ai_eval.inference.ast_scan import ScanResult
+    from ai_eval.inference.detectors.base import DetectedTask
+    from ai_eval.inference.synthesize import build_rubrics
+
+    scan = ScanResult(
+        files_scanned=1,
+        elapsed_seconds=0.0,
+        tasks=[
+            DetectedTask(
+                name="DAO.search",
+                framework="pgvector",
+                type="rag",
+                file_path="nonexistent.py",
+                entry="DAO.search",
+            ),
+        ],
+        frameworks_seen={"pgvector"},
+    )
+    rubrics = build_rubrics(scan, project_root=tmp_path)
+    assert rubrics.tasks["d_a_o_search"].top_level is True
+
+
+def test_slm_path_preserves_layer3_demotion(tmp_path: Path) -> None:
+    """Regression: ``_task_spec_from_slm`` must propagate ``task.top_level``
+    from the detector/selection layer, not clobber it with
+    ``not _is_private_entry(entry)``. A Layer-3-demoted task (top_level=False)
+    stays demoted through the SLM path."""
+    from ai_eval.inference.detectors.base import DetectedTask
+    from ai_eval.inference.slm.builder import _SLMTask, _task_spec_from_slm
+
+    task = DetectedTask(
+        name="DAO.search",
+        framework="pgvector",
+        type="rag",
+        file_path="dao.py",
+        entry="DAO.search",
+        top_level=False,  # Layer 3 demoted this
+    )
+    slm = _SLMTask(
+        type="rag",
+        purpose="vector search",
+        inputs=["query"],
+        outputs=["documents"],
+    )
+    spec = _task_spec_from_slm(slm, task)
+    assert spec.top_level is False
+
+
+def test_slm_path_keeps_top_level_for_public_method(tmp_path: Path) -> None:
+    """A non-demoted public method stays top_level through the SLM path
+    (mirrors the rules path: ``task.top_level and not _is_private_entry``)."""
+    from ai_eval.inference.detectors.base import DetectedTask
+    from ai_eval.inference.slm.builder import _SLMTask, _task_spec_from_slm
+
+    task = DetectedTask(
+        name="Svc.run",
+        framework="openai",
+        type="chat",
+        file_path="svc.py",
+        entry="Svc.run",
+        top_level=True,
+    )
+    slm = _SLMTask(type="chat", inputs=["query"], outputs=["answer"])
+    spec = _task_spec_from_slm(slm, task)
+    assert spec.top_level is True
+
+
+def test_slm_path_demotes_private_method(tmp_path: Path) -> None:
+    """A private ``_``-prefixed method is demoted by the private-entry check
+    even when the SLM classified it (the SLM doesn't own top_level)."""
+    from ai_eval.inference.detectors.base import DetectedTask
+    from ai_eval.inference.slm.builder import _SLMTask, _task_spec_from_slm
+
+    task = DetectedTask(
+        name="Svc._helper",
+        framework="openai",
+        type="chat",
+        file_path="svc.py",
+        entry="Svc._helper",
+        top_level=True,
+    )
+    slm = _SLMTask(type="chat", inputs=["query"], outputs=["answer"])
+    spec = _task_spec_from_slm(slm, task)
+    assert spec.top_level is False

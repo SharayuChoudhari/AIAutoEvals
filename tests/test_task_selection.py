@@ -293,3 +293,83 @@ def test_empty_repo_no_roots_clean_exit(tmp_path: Path) -> None:
     rubrics = build_rubrics(_scan([]), project_root=tmp_path)
     assert rubrics.tasks == {}
     assert rubrics.project_type == "custom"
+
+
+def test_fastapi_route_demotes_dao_it_calls(tmp_path: Path) -> None:
+    """Layer 3 with a real FastAPI edge: a class-based service whose
+    ``__init__`` constructs the DAO is detected as a survivor; the DAO is
+    peer-reached (the service calls ``self.dao.search``) and demoted to
+    ``top_level=False``. The signature-inspection demotion is the safety
+    net that catches the DAO regardless; Layer 3 fires for the class-based
+    call-graph edge."""
+    (tmp_path / "layers").mkdir()
+    (tmp_path / "layers" / "dao.py").write_text(
+        "class DocumentVectorDAO:\n"
+        "    def __init__(self, session):\n"
+        "        self.session = session\n"
+        "    def search_similar_vectors(self, q):\n"
+        "        return self.session.run(q)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "services").mkdir()
+    (tmp_path / "services" / "retrieval.py").write_text(
+        "from layers.dao import DocumentVectorDAO\n"
+        "class RetrievalService:\n"
+        "    def __init__(self):\n"
+        "        self.dao = DocumentVectorDAO(session=None)\n"
+        "    def retrieve(self, q):\n"
+        "        return self.dao.search_similar_vectors(q)\n",
+        encoding="utf-8",
+    )
+    tasks = [
+        _task("RetrievalService.retrieve", "services/retrieval.py"),
+        _task("DocumentVectorDAO.search_similar_vectors", "layers/dao.py"),
+    ]
+    rubrics = build_rubrics(_scan(tasks), project_root=tmp_path)
+    entries = {spec.entry for spec in rubrics.tasks.values()}
+    # The service survives as the end-to-end entry (its __init__ takes no
+    # required non-str arg — session is defaulted to None inside the ctor
+    # call, not a required param of RetrievalService itself).
+    assert "RetrievalService.retrieve" in entries
+    # The DAO is demoted: peer-reached by the service AND signature-inspected
+    # (its __init__ requires ``session``).
+    assert "DocumentVectorDAO.search_similar_vectors" not in entries
+    # The DAO entry, if it survived selection at all, is top_level=False.
+    # (Layer 1 drops reached nodes entirely; this asserts the drop.)
+    for spec in rubrics.tasks.values():
+        if spec.entry and "search_similar_vectors" in spec.entry:
+            assert spec.top_level is False
+
+
+def test_force_task_immune_to_signature_and_peer_demotion(tmp_path: Path) -> None:
+    """A force_task key survives both Layer 3 peer-reach demotion AND the
+    signature-inspection demotion — it's an explicit user override."""
+    (tmp_path / "dao.py").write_text(
+        "class DAO:\n"
+        "    def __init__(self, session):\n"
+        "        self.session = session\n"
+        "    def search(self, q):\n"
+        "        return q\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "svc.py").write_text(
+        "from dao import DAO\n"
+        "class Svc:\n"
+        "    def __init__(self):\n"
+        "        self.dao = DAO(session=None)\n"
+        "    def run(self, q):\n"
+        "        return self.dao.search(q)\n",
+        encoding="utf-8",
+    )
+    tasks = [
+        _task("Svc.run", "svc.py"),
+        _task("DAO.search", "dao.py"),
+    ]
+    rubrics = build_rubrics(
+        _scan(tasks),
+        project_root=tmp_path,
+        force_task_keys={("dao.py", "DAO.search")},
+    )
+    dao_spec = next((s for s in rubrics.tasks.values() if s.entry == "DAO.search"), None)
+    assert dao_spec is not None
+    assert dao_spec.top_level is True

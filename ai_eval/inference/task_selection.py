@@ -260,22 +260,20 @@ def select_tasks(
     # called by another surviving peer (AGENTS.md §1: only the end-to-end
     # entry point per use case is run; internal nodes are scored from the
     # captured trace, not re-executed). force_task keys stay immune — they
-    # are explicit user overrides of the call graph. Hint tasks are never
-    # reached-by-peer (they're not AST graph nodes) so they're untouched.
+    # are explicit user overrides of the call graph, so they survive even
+    # when reached by a peer (the user wants this entry run). Hint tasks
+    # are never reached-by-peer (they're not AST graph nodes) so they're
+    # untouched.
     forced_set = force_task_keys
-    peer_kept: list[DetectedTask] = []
-    for t in kept:
-        if (t.file_path, t.entry) in forced_set:
-            peer_kept.append(t)
-            continue
-        if t.framework == "hint":
-            peer_kept.append(t)
-            continue
-        peer_kept.append(t)
-    reached_by_peer = _peer_reached_keys(peer_kept, edges)
+    reached_by_peer = _peer_reached_keys(kept, edges)
     final_kept: list[DetectedTask] = []
     demoted: list[DetectedTask] = []
-    for t in peer_kept:
+    for t in kept:
+        if (t.file_path, t.entry) in forced_set:
+            # force_task is an explicit override: it stays top-level even
+            # if reached by a peer (the user wants this entry run).
+            final_kept.append(t)
+            continue
         if SiteKey.of(t) in reached_by_peer:
             demoted.append(t)
             continue

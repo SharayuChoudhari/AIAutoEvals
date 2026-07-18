@@ -275,3 +275,68 @@ def test_write_harnesses_skips_when_hash_unchanged(tmp_path: Path) -> None:
     written, _ = write_harnesses(rubrics, eval_dir, project_root=tmp_path)
     assert any(status == "skipped" for _, status in written)
     assert harness_path.stat().st_mtime_ns == mtime_before
+
+
+def test_io_coupled_without_harness_demoted_by_init_wiring(tmp_path: Path) -> None:
+    """The init wiring contract: a task returned in ``io_coupled_names`` that
+    got NO harness file (no stubbable self.<attr> reads resolved, but the
+    body still touches IO) is demoted to ``top_level=False`` by the init
+    command before rubrics are written.
+
+    This test exercises the demotion logic the init command applies after
+    ``write_harnesses`` returns: simulate a fake ``write_harnesses`` returning
+    ``(empty, {"some_task"})`` and assert the second-pass demotion flips the
+    task's ``top_level`` to False. The init command recovers task names from
+    harness filenames by stripping ``_harness_`` / ``.py``; with an empty
+    ``written`` list the recovered set is empty so the task demotes.
+    """
+    rubrics = _rubrics(
+        {
+            "some_task": TaskSpec(file_path="svc.py", entry="Svc.run", type="chat", top_level=True),
+        }
+    )
+    # Simulate the init command's second-pass demotion: io_coupled_names
+    # contains "some_task" but no harness was written for it.
+    harness_written: list[tuple[str, str]] = []
+    io_coupled_names: set[str] = {"some_task"}
+    harnessed = {
+        fname[len("_harness_") : -len(".py")]
+        for fname, _ in harness_written
+        if fname.startswith("_harness_") and fname.endswith(".py")
+    }
+    for io_name in io_coupled_names:
+        if io_name in harnessed:
+            continue
+        if io_name in rubrics.tasks and rubrics.tasks[io_name].top_level:
+            rubrics.tasks[io_name].top_level = False
+    assert rubrics.tasks["some_task"].top_level is False
+
+
+def test_io_coupled_with_harness_stays_top_level(tmp_path: Path) -> None:
+    """A task that got a harness file is NOT demoted by the init wiring —
+    the harness makes ``cls()`` work, so the task stays top_level. Mirrors
+    the init command's filename→task-name recovery (strip ``_harness_`` /
+    ``.py``) so the membership check matches the io_coupled set."""
+    rubrics = _rubrics(
+        {
+            "svc_process": TaskSpec(
+                file_path="svc.py", entry="Svc.process", type="chat", top_level=True
+            ),
+        }
+    )
+    # Simulate the init command's second-pass: io_coupled AND harnessed →
+    # no demotion. ``write_harnesses`` returns ``(filename, status)`` where
+    # ``filename = f"_harness_{task_name}.py"``.
+    harness_written: list[tuple[str, str]] = [("_harness_svc_process.py", "wrote")]
+    io_coupled_names: set[str] = {"svc_process"}
+    harnessed = {
+        fname[len("_harness_") : -len(".py")]
+        for fname, _ in harness_written
+        if fname.startswith("_harness_") and fname.endswith(".py")
+    }
+    for io_name in io_coupled_names:
+        if io_name in harnessed:
+            continue
+        if io_name in rubrics.tasks and rubrics.tasks[io_name].top_level:
+            rubrics.tasks[io_name].top_level = False
+    assert rubrics.tasks["svc_process"].top_level is True

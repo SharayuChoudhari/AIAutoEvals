@@ -25,6 +25,7 @@ from pathlib import Path
 
 from ai_eval.inference.detectors.base import DetectedTask, Detector
 from ai_eval.inference.detectors.chromadb import ChromaDBDetector
+from ai_eval.inference.detectors.fastapi import FastAPIDetector
 from ai_eval.inference.detectors.langchain import LangChainDetector
 from ai_eval.inference.detectors.langgraph import LangGraphDetector
 from ai_eval.inference.detectors.openai_chat import OpenAIChatDetector
@@ -75,8 +76,16 @@ def builtin_detectors() -> list[Detector]:
     with a tool kwarg), and Responses-with-tools emits ``workflow`` before
     chat can claim the call. LangGraph is independent (different framework
     string) but precedes LangChain in case a repo imports both families.
+
+    FastAPI runs FIRST so route handlers are claimed as top-level entry
+    points before any framework detector that might also fire inside a
+    handler body (e.g. an OpenAI call inside a ``@app.post("/chat")``
+    handler). The handler is the end-to-end entry (AGENTS.md §1); the
+    internal DAO/service/LLM calls it makes are demoted by Layer 3
+    peer-reach + signature inspection, not by detector ordering.
     """
     return [
+        FastAPIDetector(),  # before OpenAI/chat — route handlers are the entry
         OpenAIResponsesDetector(),  # before chat — tools-bearing Responses → workflow
         OpenAIToolsDetector(),  # before chat — tools take precedence
         PGVectorDetector(),  # before chat — RAG takes precedence
